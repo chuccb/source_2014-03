@@ -30,6 +30,16 @@ CREATE TABLE IF NOT EXISTS GDeletedNickNameHistory
 CREATE INDEX IF NOT EXISTS IX_GDeletedNickNameHistory_NickName_RegDate
     ON GDeletedNickNameHistory (NickName, RegDate DESC);
 
+CREATE TABLE IF NOT EXISTS GRecommend
+(
+    OldUID  INTEGER NOT NULL,
+    NewUID  INTEGER NOT NULL,
+    RegDate TEXT    NULL
+);
+
+CREATE INDEX IF NOT EXISTS IX_GRecommend_NewUID
+    ON GRecommend (NewUID);
+
 CREATE TABLE IF NOT EXISTS GDenyOption
 (
     UnitUID    INTEGER NOT NULL,
