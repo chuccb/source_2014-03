@@ -46,7 +46,25 @@ public static class KUnitInfoSerialization
             && serializer.PutMap(value.DungeonClear, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KDungeonClearInfo item) => s.Put(item))
             && serializer.PutMap(value.TcClear, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KTCClearInfo item) => s.Put(item))
             && serializer.PutMap(value.DungeonPlay, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KDungeonPlayInfo item) => s.Put(item))
-            && serializer.PutMap(value.EquippedItems, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KInventoryItemInfo item) => s.Put(item));
+            && serializer.PutMap(value.EquippedItems, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KInventoryItemInfo item) => s.Put(item))
+            && serializer.Put(value.UnitSkillData)
+            && serializer.Put(value.IsParty)
+            && serializer.Put(value.SpiritMax)
+            && serializer.Put(value.Spirit)
+            && serializer.Put(value.IsGameBang)
+            && serializer.Put(value.PcBangType)
+            && serializer.Put(value.TitleId)
+            && serializer.Put(value.UserGuildInfo)
+            && serializer.PutWString(value.LastLoginTime)
+            && serializer.Put(value.WarpVipEndTime)
+            && serializer.Put(value.EventQuestClearCount)
+            && serializer.Put(value.ExchangeCount)
+            && serializer.Put(value.OldYearMissionRewardedLevel)
+            && serializer.Put(value.NewYearMissionStepId)
+            && serializer.Put(value.CheckPowerCount)
+            && serializer.Put(value.CheckPowerTime)
+            && serializer.Put(value.CheckPowerShowPopUp)
+            && serializer.Put(value.CheckPowerScore);
     }
 
     public static bool Get(this KSerializer serializer, out KUnitInfo value)
