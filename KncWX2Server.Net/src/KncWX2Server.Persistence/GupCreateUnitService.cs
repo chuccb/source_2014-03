@@ -27,10 +27,11 @@ public sealed class GupCreateUnitService
         var sdtNow = NormalizeSqlSmallDateTime(DateTime.Now);
         var nowText = FormatDate(sdtNow);
 
-        var startSpirit = await ScalarNullableInt64Async(
+        var startSpiritRaw = await ScalarNullableInt64Async(
             connection,
             "SELECT StartSpirit FROM GResurrectionStoneCnt LIMIT 1;",
             cancellationToken).ConfigureAwait(false);
+        short? startSpirit = startSpiritRaw is { } rawStartSpirit ? checked((short)rawStartSpirit) : null;
 
         var user = await LoadUserAsync(connection, userUid, cancellationToken).ConfigureAwait(false);
         if (user.Deleted)
@@ -315,7 +316,7 @@ public sealed class GupCreateUnitService
         SqliteConnection connection,
         DbTransaction transaction,
         long unitUid,
-        long? spirit,
+        short? spirit,
         string nowText,
         CancellationToken cancellationToken)
     {
@@ -336,7 +337,7 @@ public sealed class GupCreateUnitService
         }
     }
 
-    private static async ValueTask<(bool Deleted, long? UnitSlotSize)> LoadUserAsync(
+    private static async ValueTask<(bool Deleted, byte? UnitSlotSize)> LoadUserAsync(
         SqliteConnection connection,
         long userUid,
         CancellationToken cancellationToken)
@@ -350,7 +351,7 @@ public sealed class GupCreateUnitService
             return (false, null);
 
         var deleted = reader.GetInt64(0) != 0;
-        var slotSize = reader.IsDBNull(1) ? null : reader.GetInt64(1);
+        var slotSize = reader.IsDBNull(1) ? null : checked((byte)reader.GetInt64(1));
         return (deleted, slotSize);
     }
 
