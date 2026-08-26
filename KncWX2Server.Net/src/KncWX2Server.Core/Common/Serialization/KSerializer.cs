@@ -43,8 +43,6 @@ public sealed class KSerializer
 
     public int ReadLength => _buffer?.ReadLength ?? 0;
 
-    // Legacy C++ char is a distinct 1-byte type (eTAG_CHAR).
-    // C# char is used below for legacy wchar_t and therefore maps to eTAG_WCHAR.
     public bool Put(sbyte value) => WriteTagged(SerializeTag.Char, [unchecked((byte)value)]);
 
     public bool Get(out sbyte value)
@@ -259,8 +257,7 @@ public sealed class KSerializer
     public bool PutWString(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        var chars = value.AsSpan();
-        var bytes = MemoryMarshal.AsBytes(chars);
+        var bytes = MemoryMarshal.AsBytes(value.AsSpan());
         if (!WriteTag(SerializeTag.WString) || !Put((uint)bytes.Length))
             return false;
         return bytes.IsEmpty || WriteBytes(bytes);
@@ -311,81 +308,37 @@ public sealed class KSerializer
         return true;
     }
 
-    public bool PutPair<TFirst, TSecond>(
-        TFirst first,
-        TSecond second,
-        Func<KSerializer, TFirst, bool> putFirst,
-        Func<KSerializer, TSecond, bool> putSecond)
+    public bool PutPair<TFirst, TSecond>(TFirst first, TSecond second, Func<KSerializer, TFirst, bool> putFirst, Func<KSerializer, TSecond, bool> putSecond)
     {
         ArgumentNullException.ThrowIfNull(putFirst);
         ArgumentNullException.ThrowIfNull(putSecond);
-
-        return WriteTag(SerializeTag.Pair)
-            && putFirst(this, first)
-            && putSecond(this, second);
+        return WriteTag(SerializeTag.Pair) && putFirst(this, first) && putSecond(this, second);
     }
 
-    public bool GetPair<TFirst, TSecond>(
-        ElementReader<TFirst> readFirst,
-        ElementReader<TSecond> readSecond,
-        out TFirst first,
-        out TSecond second)
+    public bool GetPair<TFirst, TSecond>(ElementReader<TFirst> readFirst, ElementReader<TSecond> readSecond, out TFirst first, out TSecond second)
     {
         ArgumentNullException.ThrowIfNull(readFirst);
         ArgumentNullException.ThrowIfNull(readSecond);
-
         first = default!;
         second = default!;
-        if (!ReadAndCheckTag(SerializeTag.Pair)
-            || !readFirst(this, out first)
-            || !readSecond(this, out second))
-            return false;
-
-        return true;
+        return ReadAndCheckTag(SerializeTag.Pair) && readFirst(this, out first) && readSecond(this, out second);
     }
 
-    public bool PutVector<T>(IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement)
-    {
-        return PutSequence(SerializeTag.Vector, value, putElement);
-    }
+    public bool PutVector<T>(IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement) => PutSequence(SerializeTag.Vector, value, putElement);
+    public bool PutList<T>(IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement) => PutSequence(SerializeTag.List, value, putElement);
+    public bool PutDeque<T>(IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement) => PutSequence(SerializeTag.Deque, value, putElement);
 
-    public bool PutList<T>(IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement)
-    {
-        return PutSequence(SerializeTag.List, value, putElement);
-    }
+    public bool GetVector<T>(ICollection<T> value, ElementReader<T> readElement) => GetSequence(SerializeTag.Vector, value, readElement);
+    public bool GetList<T>(ICollection<T> value, ElementReader<T> readElement) => GetSequence(SerializeTag.List, value, readElement);
+    public bool GetDeque<T>(ICollection<T> value, ElementReader<T> readElement) => GetSequence(SerializeTag.Deque, value, readElement);
 
-    public bool PutDeque<T>(IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement)
-    {
-        return PutSequence(SerializeTag.Deque, value, putElement);
-    }
-
-    public bool GetVector<T>(ICollection<T> value, ElementReader<T> readElement)
-    {
-        return GetSequence(SerializeTag.Vector, value, readElement);
-    }
-
-    public bool GetList<T>(ICollection<T> value, ElementReader<T> readElement)
-    {
-        return GetSequence(SerializeTag.List, value, readElement);
-    }
-
-    public bool GetDeque<T>(ICollection<T> value, ElementReader<T> readElement)
-    {
-        return GetSequence(SerializeTag.Deque, value, readElement);
-    }
-
-    private bool PutSequence<T>(
-        SerializeTag tag,
-        IReadOnlyCollection<T> value,
-        Func<KSerializer, T, bool> putElement)
+    private bool PutSequence<T>(SerializeTag tag, IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(putElement);
-
         var expectedCount = checked((uint)value.Count);
         if (!WriteTag(tag) || !Put(expectedCount))
             return false;
-
         uint count = 0;
         foreach (var element in value)
         {
@@ -393,29 +346,22 @@ public sealed class KSerializer
                 return false;
             count++;
         }
-
         return count == expectedCount;
     }
 
-    private bool GetSequence<T>(
-        SerializeTag tag,
-        ICollection<T> value,
-        ElementReader<T> readElement)
+    private bool GetSequence<T>(SerializeTag tag, ICollection<T> value, ElementReader<T> readElement)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(readElement);
-
         value.Clear();
         if (!ReadAndCheckTag(tag) || !Get(out uint count))
             return false;
-
         for (uint i = 0; i < count; i++)
         {
             if (!readElement(this, out var element))
                 return false;
             value.Add(element);
         }
-
         return true;
     }
 
@@ -423,11 +369,9 @@ public sealed class KSerializer
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(putElement);
-
         var expectedCount = checked((uint)value.Count);
         if (!WriteTag(SerializeTag.Set) || !Put(expectedCount))
             return false;
-
         uint count = 0;
         foreach (var element in value)
         {
@@ -435,7 +379,6 @@ public sealed class KSerializer
                 return false;
             count++;
         }
-
         return count == expectedCount;
     }
 
@@ -445,74 +388,40 @@ public sealed class KSerializer
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(readElement);
-
         value.Clear();
         if (!ReadAndCheckTag(SerializeTag.Set) || !Get(out uint count))
             return false;
-
         for (uint i = 0; i < count; i++)
         {
             if (!readElement(this, out var element))
                 return false;
             value.Add(element);
         }
-
         return true;
     }
 
-    public bool PutMap<TKey, TValue>(
-        IReadOnlyCollection<KeyValuePair<TKey, TValue>> entries,
-        Func<KSerializer, TKey, bool> putKey,
-        Func<KSerializer, TValue, bool> putValue)
-    {
-        return PutMapLike(SerializeTag.Map, entries, putKey, putValue);
-    }
+    public bool PutMultiset<T>(IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement) => PutSequence(SerializeTag.Multiset, value, putElement);
 
-    public bool PutMultimap<TKey, TValue>(
-        IReadOnlyCollection<KeyValuePair<TKey, TValue>> entries,
-        Func<KSerializer, TKey, bool> putKey,
-        Func<KSerializer, TValue, bool> putValue)
-    {
-        return PutMapLike(SerializeTag.Multimap, entries, putKey, putValue);
-    }
+    public bool GetMultiset<T>(ICollection<T> value, ElementReader<T> readElement) => GetSequence(SerializeTag.Multiset, value, readElement);
 
-    public delegate bool KeyValueReader<TKey, TValue>(
-        KSerializer serializer,
-        out TKey key,
-        out TValue value);
+    public bool PutMap<TKey, TValue>(IReadOnlyCollection<KeyValuePair<TKey, TValue>> entries, Func<KSerializer, TKey, bool> putKey, Func<KSerializer, TValue, bool> putValue) => PutMapLike(SerializeTag.Map, entries, putKey, putValue);
 
+    public bool PutMultimap<TKey, TValue>(IReadOnlyCollection<KeyValuePair<TKey, TValue>> entries, Func<KSerializer, TKey, bool> putKey, Func<KSerializer, TValue, bool> putValue) => PutMapLike(SerializeTag.Multimap, entries, putKey, putValue);
+
+    public delegate bool KeyValueReader<TKey, TValue>(KSerializer serializer, out TKey key, out TValue value);
     public delegate bool KeyValueInserter<TKey, TValue>(TKey key, TValue value);
 
-    public bool GetMap<TKey, TValue>(
-        Action clearEntries,
-        KeyValueInserter<TKey, TValue> insertEntry,
-        KeyValueReader<TKey, TValue> readEntry)
-    {
-        return GetMapLike(SerializeTag.Map, clearEntries, insertEntry, readEntry);
-    }
+    public bool GetMap<TKey, TValue>(Action clearEntries, KeyValueInserter<TKey, TValue> insertEntry, KeyValueReader<TKey, TValue> readEntry) => GetMapLike(SerializeTag.Map, clearEntries, insertEntry, readEntry);
+    public bool GetMultimap<TKey, TValue>(Action clearEntries, KeyValueInserter<TKey, TValue> insertEntry, KeyValueReader<TKey, TValue> readEntry) => GetMapLike(SerializeTag.Multimap, clearEntries, insertEntry, readEntry);
 
-    public bool GetMultimap<TKey, TValue>(
-        Action clearEntries,
-        KeyValueInserter<TKey, TValue> insertEntry,
-        KeyValueReader<TKey, TValue> readEntry)
-    {
-        return GetMapLike(SerializeTag.Multimap, clearEntries, insertEntry, readEntry);
-    }
-
-    private bool PutMapLike<TKey, TValue>(
-        SerializeTag tag,
-        IReadOnlyCollection<KeyValuePair<TKey, TValue>> entries,
-        Func<KSerializer, TKey, bool> putKey,
-        Func<KSerializer, TValue, bool> putValue)
+    private bool PutMapLike<TKey, TValue>(SerializeTag tag, IReadOnlyCollection<KeyValuePair<TKey, TValue>> entries, Func<KSerializer, TKey, bool> putKey, Func<KSerializer, TValue, bool> putValue)
     {
         ArgumentNullException.ThrowIfNull(entries);
         ArgumentNullException.ThrowIfNull(putKey);
         ArgumentNullException.ThrowIfNull(putValue);
-
         var expectedCount = checked((uint)entries.Count);
         if (!WriteTag(tag) || !Put(expectedCount))
             return false;
-
         uint count = 0;
         foreach (var entry in entries)
         {
@@ -520,30 +429,22 @@ public sealed class KSerializer
                 return false;
             count++;
         }
-
         return count == expectedCount;
     }
 
-    private bool GetMapLike<TKey, TValue>(
-        SerializeTag tag,
-        Action clearEntries,
-        KeyValueInserter<TKey, TValue> insertEntry,
-        KeyValueReader<TKey, TValue> readEntry)
+    private bool GetMapLike<TKey, TValue>(SerializeTag tag, Action clearEntries, KeyValueInserter<TKey, TValue> insertEntry, KeyValueReader<TKey, TValue> readEntry)
     {
         ArgumentNullException.ThrowIfNull(clearEntries);
         ArgumentNullException.ThrowIfNull(insertEntry);
         ArgumentNullException.ThrowIfNull(readEntry);
-
         clearEntries();
         if (!ReadAndCheckTag(tag) || !Get(out uint count))
             return false;
-
         for (uint i = 0; i < count; i++)
         {
             if (!readEntry(this, out var key, out var value) || !insertEntry(key, value))
                 return false;
         }
-
         return true;
     }
 
@@ -564,12 +465,7 @@ public sealed class KSerializer
         ArgumentNullException.ThrowIfNull(value);
         var authKey = ByteStream.From(value.AuthKey);
         var cryptoKey = ByteStream.From(value.CryptoKey);
-        return WriteTag(SerializeTag.UserClass)
-            && Put(authKey)
-            && Put(cryptoKey)
-            && Put(value.SequenceNumber)
-            && Put(value.LastSequenceNumber)
-            && Put(value.ReplayWindowMask);
+        return WriteTag(SerializeTag.UserClass) && Put(authKey) && Put(cryptoKey) && Put(value.SequenceNumber) && Put(value.LastSequenceNumber) && Put(value.ReplayWindowMask);
     }
 
     public bool Get(SecurityAssociation value)
@@ -577,16 +473,9 @@ public sealed class KSerializer
         ArgumentNullException.ThrowIfNull(value);
         var authKey = new ByteStream();
         var cryptoKey = new ByteStream();
-        if (!ReadAndCheckTag(SerializeTag.UserClass)
-            || !Get(authKey)
-            || !Get(cryptoKey)
-            || !Get(out uint sequenceNumber)
-            || !Get(out uint lastSequenceNumber)
-            || !Get(out uint replayWindowMask))
+        if (!ReadAndCheckTag(SerializeTag.UserClass) || !Get(authKey) || !Get(cryptoKey) || !Get(out uint sequenceNumber) || !Get(out uint lastSequenceNumber) || !Get(out uint replayWindowMask))
             return false;
-
-        value.Restore(new SecurityAssociationState(
-            authKey.ToArray(), cryptoKey.ToArray(), sequenceNumber, lastSequenceNumber, replayWindowMask));
+        value.Restore(new SecurityAssociationState(authKey.ToArray(), cryptoKey.ToArray(), sequenceNumber, lastSequenceNumber, replayWindowMask));
         return true;
     }
 
@@ -643,11 +532,9 @@ public sealed class KSerializer
         return true;
     }
 
-    private bool WriteTagged(SerializeTag tag, ReadOnlySpan<byte> data) =>
-        WriteTag(tag) && WriteBytes(data);
+    private bool WriteTagged(SerializeTag tag, ReadOnlySpan<byte> data) => WriteTag(tag) && WriteBytes(data);
 
-    private bool ReadTagged(SerializeTag tag, Span<byte> destination) =>
-        ReadAndCheckTag(tag) && ReadBytes(destination);
+    private bool ReadTagged(SerializeTag tag, Span<byte> destination) => ReadAndCheckTag(tag) && ReadBytes(destination);
 
     private bool WriteBytes(ReadOnlySpan<byte> data)
     {
@@ -657,6 +544,5 @@ public sealed class KSerializer
         return true;
     }
 
-    private bool ReadBytes(Span<byte> data) =>
-        _buffer is not null && !data.IsEmpty && _buffer.Read(data);
+    private bool ReadBytes(Span<byte> data) => _buffer is not null && !data.IsEmpty && _buffer.Read(data);
 }
