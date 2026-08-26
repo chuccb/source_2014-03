@@ -10,6 +10,7 @@ public sealed class ByteStream
     public int Length => _buffer.Length;
     public bool IsEmpty => _buffer.Length == 0;
     public ReadOnlySpan<byte> Span => _buffer;
+    public Span<byte> WritableSpan => _buffer;
     public byte[] ToArray() => [.. _buffer];
 
     public byte this[int index]
@@ -92,6 +93,6 @@ public static class SecuritySerialization
             return false;
 
         value.Resize((int)length);
-        return length == 0 || serializer.GetRaw(value.AsSpan());
+        return length == 0 || serializer.GetRaw(value.WritableSpan);
     }
 }
