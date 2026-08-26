@@ -6,7 +6,7 @@ namespace KncWX2Server.Common.Socket;
 /// </summary>
 public sealed class CircularQueue(int capacity)
 {
-    private readonly byte[] _buffer = new byte[Math.Max(0, capacity)];
+    private byte[] _buffer = new byte[Math.Max(0, capacity)];
     private int _head;
     private int _tail;
 
@@ -19,7 +19,7 @@ public sealed class CircularQueue(int capacity)
         if (size < 0)
             throw new ArgumentOutOfRangeException(nameof(size));
 
-        Array.Clear(_buffer);
+        _buffer = new byte[size];
         _head = 0;
         _tail = 0;
     }
