@@ -480,6 +480,33 @@ public sealed class KSerializer
         return PutMapLike(SerializeTag.Map, entries, putKey, putValue);
     }
 
+    public bool PutMap<TValue>(
+        IReadOnlyDictionary<int, TValue> value,
+        InElementWriter<TValue> putValue)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(putValue);
+
+        var expectedCount = checked((uint)value.Count);
+        if (!WriteTag(SerializeTag.Map) || !Put(expectedCount))
+            return false;
+
+        uint count = 0;
+        foreach (var entry in value)
+        {
+            if (!WriteTag(SerializeTag.Pair) || !Put(entry.Key))
+                return false;
+
+            var item = entry.Value;
+            if (!putValue(this, in item))
+                return false;
+
+            count++;
+        }
+
+        return count == expectedCount;
+    }
+
     public bool PutMultimap<TKey, TValue>(
         IReadOnlyCollection<KeyValuePair<TKey, TValue>> entries,
         Func<KSerializer, TKey, bool> putKey,
@@ -487,6 +514,8 @@ public sealed class KSerializer
     {
         return PutMapLike(SerializeTag.Multimap, entries, putKey, putValue);
     }
+
+    public delegate bool InElementWriter<T>(KSerializer serializer, in T value);
 
     public delegate bool KeyValueReader<TKey, TValue>(
         KSerializer serializer,
@@ -501,6 +530,30 @@ public sealed class KSerializer
         KeyValueReader<TKey, TValue> readEntry)
     {
         return GetMapLike(SerializeTag.Map, clearEntries, insertEntry, readEntry);
+    }
+
+    public bool GetMap<TValue>(
+        Dictionary<int, TValue> value,
+        ElementReader<TValue> readValue)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(readValue);
+
+        value.Clear();
+        if (!ReadAndCheckTag(SerializeTag.Map) || !Get(out uint count))
+            return false;
+
+        for (uint i = 0; i < count; i++)
+        {
+            if (!ReadAndCheckTag(SerializeTag.Pair)
+                || !Get(out int key)
+                || !readValue(this, out var item))
+                return false;
+
+            value.TryAdd(key, item);
+        }
+
+        return true;
     }
 
     public bool GetMultimap<TKey, TValue>(
