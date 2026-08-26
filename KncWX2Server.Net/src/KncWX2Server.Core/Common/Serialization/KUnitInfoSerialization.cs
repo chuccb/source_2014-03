@@ -46,7 +46,7 @@ public static class KUnitInfoSerialization
             && serializer.PutMap(value.DungeonClear, PutInt, KUnitInfoNestedSerialization.Put)
             && serializer.PutMap(value.TcClear, PutInt, KUnitInfoNestedSerialization.Put)
             && serializer.PutMap(value.DungeonPlay, PutInt, KUnitInfoNestedSerialization.Put)
-            && serializer.PutMap(value.EquippedItems, PutInt, KInventoryItemInfoSerialization.Put)
+            && serializer.PutMap(value.EquippedItems, PutInt, KItemInfoSerialization.Put)
             && serializer.Put(value.UnitSkillData)
             && serializer.Put(value.IsParty)
             && serializer.Put(value.SpiritMax)
@@ -108,7 +108,7 @@ public static class KUnitInfoSerialization
             || !serializer.GetMap<int, KDungeonClearInfo>(value.DungeonClear.Clear, value.DungeonClear.TryAdd, KUnitInfoNestedSerialization.Get)
             || !serializer.GetMap<int, KTCClearInfo>(value.TcClear.Clear, value.TcClear.TryAdd, KUnitInfoNestedSerialization.Get)
             || !serializer.GetMap<int, KDungeonPlayInfo>(value.DungeonPlay.Clear, value.DungeonPlay.TryAdd, KUnitInfoNestedSerialization.Get)
-            || !serializer.GetMap<int, KInventoryItemInfo>(value.EquippedItems.Clear, value.EquippedItems.TryAdd, KInventoryItemInfoSerialization.Get)
+            || !serializer.GetMap<int, KInventoryItemInfo>(value.EquippedItems.Clear, value.EquippedItems.TryAdd, KItemInfoSerialization.Get)
             || !serializer.Get(out KUnitSkillData unitSkillData)
             || !serializer.Get(out bool isParty)
             || !serializer.Get(out int spiritMax)
@@ -164,7 +164,7 @@ public static class KUnitInfoSerialization
         value.Lose = lose;
         value.IsParty = isParty;
         value.SpiritMax = spiritMax;
-        value.Spirit = spiritMax;
+        value.Spirit = spirit;
         value.IsGameBang = isGameBang;
         value.PcBangType = pcBangType;
         value.TitleId = titleId;
