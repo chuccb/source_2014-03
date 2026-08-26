@@ -15,7 +15,9 @@ public sealed class KPerformerInfo
     {
         if (Uids.Count >= MaxUidCount)
             return false;
-        return Uids.Add(uid);
+
+        Uids.Add(uid);
+        return true;
     }
 
     public int UidListSize => Uids.Count;
