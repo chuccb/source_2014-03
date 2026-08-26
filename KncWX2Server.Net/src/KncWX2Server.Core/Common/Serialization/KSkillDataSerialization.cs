@@ -50,22 +50,34 @@ public static class KUnitSkillDataSerialization
         value = new();
 
         for (var i = 0; i < KUnitSkillData.EquippedSkillSlotCount; i++)
-            if (!serializer.Get(out value.EquippedSkills[i]))
+        {
+            if (!serializer.Get(out KSkillData skill))
                 return false;
+
+            value.EquippedSkills[i] = skill;
+        }
 
         for (var i = 0; i < KUnitSkillData.EquippedSkillSlotCount; i++)
-            if (!serializer.Get(out value.EquippedSkillSlotB[i]))
+        {
+            if (!serializer.Get(out KSkillData skill))
                 return false;
 
-        if (!serializer.GetWString(out value.SkillSlotBEndDate)
-            || !serializer.Get(out value.SkillSlotBExpirationState)
+            value.EquippedSkillSlotB[i] = skill;
+        }
+
+        if (!serializer.GetWString(out var skillSlotBEndDate)
+            || !serializer.Get(out sbyte skillSlotBExpirationState)
             || !serializer.GetVector(value.PassiveSkills, static (KSerializer s, out KSkillData skill) => s.Get(out skill))
             || !serializer.GetVector(value.GuildPassiveSkills, static (KSerializer s, out KSkillData skill) => s.Get(out skill))
             || !serializer.GetVector(value.SkillNotes, static (KSerializer s, out int note) => s.Get(out note))
-            || !serializer.Get(out value.ActiveSkillPagesNumber)
-            || !serializer.Get(out value.AvailableSkillPagesNumber))
+            || !serializer.Get(out byte activeSkillPagesNumber)
+            || !serializer.Get(out byte availableSkillPagesNumber))
             return false;
 
+        value.SkillSlotBEndDate = skillSlotBEndDate;
+        value.SkillSlotBExpirationState = skillSlotBExpirationState;
+        value.ActiveSkillPagesNumber = activeSkillPagesNumber;
+        value.AvailableSkillPagesNumber = availableSkillPagesNumber;
         return true;
     }
 }
