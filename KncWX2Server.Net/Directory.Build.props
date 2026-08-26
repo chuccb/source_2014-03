@@ -11,6 +11,8 @@
     <ServerGarbageCollection>true</ServerGarbageCollection>
     <TieredPGO>true</TieredPGO>
     <PublishReadyToRun>false</PublishReadyToRun>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PublishAot Condition="'$(OutputType)' == 'Exe'">true</PublishAot>
     <DebugType>portable</DebugType>
     <DebugSymbols>true</DebugSymbols>
   </PropertyGroup>
