@@ -1,6 +1,6 @@
 namespace KncWX2Server.Core.Common;
 
-/// <summary>Legacy KSkillData: skill id and skill level.</summary>
+/// <summary>Legacy KSkillData: 32-bit skill id and 8-bit skill level.</summary>
 public readonly record struct KSkillData(
-    short SkillId,
+    int SkillId,
     byte SkillLevel);
