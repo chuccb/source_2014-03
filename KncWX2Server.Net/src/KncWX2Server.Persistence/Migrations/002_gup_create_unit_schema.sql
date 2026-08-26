@@ -37,9 +37,6 @@ CREATE TABLE IF NOT EXISTS GRecommend
     RegDate TEXT    NULL
 );
 
-CREATE INDEX IF NOT EXISTS IX_GRecommend_NewUID
-    ON GRecommend (NewUID);
-
 CREATE TABLE IF NOT EXISTS GDenyOption
 (
     UnitUID    INTEGER NOT NULL,
