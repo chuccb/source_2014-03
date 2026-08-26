@@ -104,6 +104,7 @@ public static class KUnitInfoSerialization
             || !serializer.Get(out KLastPositionInfo lastPosition)
             || !serializer.GetVector(value.BuffInfo, static (KSerializer s, out KBuffInfo item) => s.Get(out item))
             || !serializer.Get(out int win)
+            || !serializer.Get(out int lose)
             || !GetDungeonClear(serializer, value.DungeonClear)
             || !GetTcClear(serializer, value.TcClear)
             || !GetDungeonPlay(serializer, value.DungeonPlay)
@@ -188,25 +189,41 @@ public static class KUnitInfoSerialization
         serializer.GetMap(
             value.Clear,
             (int key, KDungeonClearInfo item) => { value.TryAdd(key, item); return true; },
-            static (KSerializer s, out int key, out KDungeonClearInfo item) => s.Get(out key) && s.Get(out item));
+            static (KSerializer s, out int key, out KDungeonClearInfo item) =>
+            {
+                item = default;
+                return s.Get(out key) && s.Get(out item);
+            });
 
     private static bool GetTcClear(KSerializer serializer, Dictionary<int, KTCClearInfo> value) =>
         serializer.GetMap(
             value.Clear,
             (int key, KTCClearInfo item) => { value.TryAdd(key, item); return true; },
-            static (KSerializer s, out int key, out KTCClearInfo item) => s.Get(out key) && s.Get(out item));
+            static (KSerializer s, out int key, out KTCClearInfo item) =>
+            {
+                item = default;
+                return s.Get(out key) && s.Get(out item);
+            });
 
     private static bool GetDungeonPlay(KSerializer serializer, Dictionary<int, KDungeonPlayInfo> value) =>
         serializer.GetMap(
             value.Clear,
             (int key, KDungeonPlayInfo item) => { value.TryAdd(key, item); return true; },
-            static (KSerializer s, out int key, out KDungeonPlayInfo item) => s.Get(out key) && s.Get(out item));
+            static (KSerializer s, out int key, out KDungeonPlayInfo item) =>
+            {
+                item = default;
+                return s.Get(out key) && s.Get(out item);
+            });
 
     private static bool GetEquippedItems(KSerializer serializer, Dictionary<int, KInventoryItemInfo> value) =>
         serializer.GetMap(
             value.Clear,
             (int key, KInventoryItemInfo item) => { value.TryAdd(key, item); return true; },
-            static (KSerializer s, out int key, out KInventoryItemInfo item) => s.Get(out key) && s.Get(out item));
+            static (KSerializer s, out int key, out KInventoryItemInfo item) =>
+            {
+                item = default;
+                return s.Get(out key) && s.Get(out item);
+            });
 
     private static void CopyUnitSkillData(KUnitSkillData destination, KUnitSkillData source)
     {
