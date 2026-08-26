@@ -93,7 +93,7 @@ public sealed class KEvent
         clone.LastTrace = LastTrace;
         clone.EventId = EventId;
         clone.FromType = FromType;
-        clone.Buffer.Write(Buffer.Data);
+        clone.Buffer.CopyStateFrom(Buffer);
         return clone;
     }
 
