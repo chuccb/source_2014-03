@@ -53,6 +53,14 @@ public sealed class SerBuffer
         _compressed = compressed;
     }
 
+    internal void CopyStateFrom(SerBuffer other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        _buffer = [.. other._buffer];
+        _readOffset = other._readOffset;
+        _compressed = other._compressed;
+    }
+
     public void Swap(SerBuffer other)
     {
         ArgumentNullException.ThrowIfNull(other);
