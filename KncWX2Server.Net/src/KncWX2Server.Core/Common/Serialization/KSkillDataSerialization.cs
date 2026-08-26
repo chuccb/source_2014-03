@@ -38,9 +38,9 @@ public static class KUnitSkillDataSerialization
 
         return serializer.PutWString(value.SkillSlotBEndDate)
             && serializer.Put(value.SkillSlotBExpirationState)
-            && serializer.PutVector(value.PassiveSkills, static (s, skill) => s.Put(skill))
-            && serializer.PutVector(value.GuildPassiveSkills, static (s, skill) => s.Put(skill))
-            && serializer.PutVector(value.SkillNotes, static (s, note) => s.Put(note))
+            && serializer.PutVector(value.PassiveSkills, static (KSerializer s, KSkillData skill) => s.Put(skill))
+            && serializer.PutVector(value.GuildPassiveSkills, static (KSerializer s, KSkillData skill) => s.Put(skill))
+            && serializer.PutVector(value.SkillNotes, static (KSerializer s, int note) => s.Put(note))
             && serializer.Put(value.ActiveSkillPagesNumber)
             && serializer.Put(value.AvailableSkillPagesNumber);
     }
@@ -65,9 +65,9 @@ public static class KUnitSkillDataSerialization
 
         if (!serializer.GetWString(out var endDate)
             || !serializer.Get(out value.SkillSlotBExpirationState)
-            || !serializer.GetVector(value.PassiveSkills, static (s, out KSkillData skill) => s.Get(out skill))
-            || !serializer.GetVector(value.GuildPassiveSkills, static (s, out KSkillData skill) => s.Get(out skill))
-            || !serializer.GetVector(value.SkillNotes, static (s, out int note) => s.Get(out note))
+            || !serializer.GetVector(value.PassiveSkills, static (KSerializer s, out KSkillData skill) => s.Get(out skill))
+            || !serializer.GetVector(value.GuildPassiveSkills, static (KSerializer s, out KSkillData skill) => s.Get(out skill))
+            || !serializer.GetVector(value.SkillNotes, static (KSerializer s, out int note) => s.Get(out note))
             || !serializer.Get(out value.ActiveSkillPagesNumber)
             || !serializer.Get(out value.AvailableSkillPagesNumber))
         {
