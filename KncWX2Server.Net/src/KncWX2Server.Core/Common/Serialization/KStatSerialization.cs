@@ -16,11 +16,11 @@ public static class KStatSerialization
     {
         value = default;
 
-        if (!serializer.Get(out var baseHp)
-            || !serializer.Get(out var atkPhysic)
-            || !serializer.Get(out var atkMagic)
-            || !serializer.Get(out var defPhysic)
-            || !serializer.Get(out var defMagic))
+        if (!serializer.Get(out int baseHp)
+            || !serializer.Get(out int atkPhysic)
+            || !serializer.Get(out int atkMagic)
+            || !serializer.Get(out int defPhysic)
+            || !serializer.Get(out int defMagic))
             return false;
 
         value = new(baseHp, atkPhysic, atkMagic, defPhysic, defMagic);
