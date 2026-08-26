@@ -23,6 +23,8 @@ public sealed class TcpSocketConnection : IAsyncDisposable
     private readonly SendBuffer _sendBuffer;
     private readonly SemaphoreSlim _sendWake = new(0);
     private CancellationTokenSource? _lifetime;
+    private Task? _receiveTask;
+    private Task? _sendTask;
     private int _started;
     private int _closed;
     private int _disconnectRaised;
@@ -54,8 +56,8 @@ public sealed class TcpSocketConnection : IAsyncDisposable
             throw new InvalidOperationException("Connection already started.");
 
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _ = ReceiveLoopAsync(_lifetime.Token);
-        _ = SendLoopAsync(_lifetime.Token);
+        _receiveTask = ReceiveLoopAsync(_lifetime.Token);
+        _sendTask = SendLoopAsync(_lifetime.Token);
     }
 
     public bool QueueSend(ReadOnlySpan<byte> data)
@@ -67,6 +69,10 @@ public sealed class TcpSocketConnection : IAsyncDisposable
         {
             if (!_sendBuffer.Enqueue(data))
             {
+                // Legacy SendData() discards all pending send state when the active buffer
+                // and circular queue cannot accept the complete input payload.
+                _sendBuffer.Clear();
+                IsSending = false;
                 DisconnectReason = SocketDisconnectReason.SendBufferFull;
                 return false;
             }
@@ -79,9 +85,17 @@ public sealed class TcpSocketConnection : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         CloseTransport(SocketDisconnectReason.LocalShutdown);
+
+        var receiveTask = _receiveTask;
+        var sendTask = _sendTask;
+        var currentTaskId = Task.CurrentId;
+        if (receiveTask is not null && receiveTask.Id != currentTaskId)
+            await IgnoreBackgroundFailureAsync(receiveTask).ConfigureAwait(false);
+        if (sendTask is not null && sendTask.Id != currentTaskId)
+            await IgnoreBackgroundFailureAsync(sendTask).ConfigureAwait(false);
+
         _lifetime?.Dispose();
         _sendWake.Dispose();
-        await ValueTask.CompletedTask;
     }
 
     public Task StopAsync(SocketDisconnectReason reason = SocketDisconnectReason.LocalShutdown)
@@ -118,6 +132,10 @@ public sealed class TcpSocketConnection : IAsyncDisposable
         }
         catch (ObjectDisposedException)
         {
+        }
+        catch
+        {
+            CloseTransport(SocketDisconnectReason.ReceiveFailed);
         }
     }
 
@@ -179,6 +197,9 @@ public sealed class TcpSocketConnection : IAsyncDisposable
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
     private void CloseTransport(SocketDisconnectReason reason)
@@ -204,5 +225,22 @@ public sealed class TcpSocketConnection : IAsyncDisposable
         var handler = Disconnected;
         if (handler is not null)
             await handler(reason).ConfigureAwait(false);
+    }
+
+    private static async Task IgnoreBackgroundFailureAsync(Task task)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (SocketException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 }
