@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace KncWX2Server.Common;
 
 /// <summary>
