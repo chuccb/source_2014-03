@@ -21,6 +21,8 @@ public sealed class SqliteDbEventHandlerRegistry
 {
     private readonly Dictionary<ushort, ISqliteDbEventHandler> _handlers = [];
 
+    public int Count => _handlers.Count;
+
     public void Register(ISqliteDbEventHandler handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
