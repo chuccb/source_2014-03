@@ -24,28 +24,17 @@ public sealed class KPerformerInfo
 
     internal bool WriteFields(KSerializer serializer)
     {
-        if (!serializer.Put(PerformerId) || !serializer.WriteTag(SerializeTag.Set) || !serializer.Put((uint)Uids.Count))
-            return false;
-
-        foreach (var uid in Uids)
-            if (!serializer.Put(uid))
-                return false;
-
-        return true;
+        return serializer.Put(PerformerId)
+            && serializer.Put(Uids, static (ser, uid) => ser.Put(uid));
     }
 
     internal bool ReadFields(KSerializer serializer)
     {
         Uids.Clear();
-        if (!serializer.Get(out uint performerId) || !serializer.ReadAndCheckTag(SerializeTag.Set) || !serializer.Get(out uint count))
+        if (!serializer.Get(out uint performerId))
             return false;
-
-        for (var i = 0; i < count; i++)
-        {
-            if (!serializer.Get(out long uid))
-                return false;
-            Uids.Add(uid);
-        }
+        if (!serializer.Get(Uids, static (ser, out long uid) => ser.Get(out uid)))
+            return false;
 
         PerformerId = performerId;
         return true;
