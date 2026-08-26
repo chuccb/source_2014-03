@@ -1,0 +1,89 @@
+CREATE TABLE IF NOT EXISTS users
+(
+    Login        TEXT    NOT NULL,
+    passwd       TEXT    NOT NULL,
+    sex          TEXT    NOT NULL,
+    LoginUID     INTEGER PRIMARY KEY AUTOINCREMENT,
+    firstLogin   TEXT    NOT NULL,
+    lastConnect  TEXT    NOT NULL,
+    lastLogin    TEXT    NOT NULL,
+    playTime     INTEGER NOT NULL,
+    gamePoint    INTEGER NOT NULL,
+    IPAddress    TEXT    NOT NULL,
+    Connecting   INTEGER NOT NULL CHECK (Connecting IN (0, 1)),
+    ModeLevel    BLOB    NOT NULL,
+    Grade        INTEGER NOT NULL,
+    UNIQUE (Login)
+);
+
+CREATE INDEX IF NOT EXISTS IX_users_LoginUID ON users (LoginUID);
+
+CREATE TABLE IF NOT EXISTS GUser
+(
+    UserUID BIGINT NOT NULL PRIMARY KEY,
+    UserID  TEXT   NOT NULL,
+    USSize  INTEGER NOT NULL,
+    RegDate TEXT NOT NULL,
+    DelDate TEXT NOT NULL,
+    Deleted INTEGER GENERATED ALWAYS AS (CASE WHEN RegDate = DelDate THEN 0 ELSE 1 END) STORED
+);
+
+CREATE INDEX IF NOT EXISTS IX_GUser_UserID ON GUser (UserID);
+
+CREATE TABLE IF NOT EXISTS GUnit
+(
+    UnitUID      INTEGER PRIMARY KEY AUTOINCREMENT,
+    UserUID      BIGINT  NOT NULL,
+    UnitClass    INTEGER NOT NULL,
+    Exp          INTEGER NOT NULL,
+    Level        INTEGER NOT NULL,
+    GamePoint    INTEGER NOT NULL,
+    VSPoint      INTEGER NOT NULL,
+    VSPointMax   INTEGER NULL,
+    BaseHP       INTEGER NOT NULL,
+    AtkPhysic    INTEGER NOT NULL,
+    AtkMagic     INTEGER NOT NULL,
+    DefPhysic    INTEGER NOT NULL,
+    DefMagic     INTEGER NOT NULL,
+    SPoint       INTEGER NOT NULL,
+    Win          INTEGER NOT NULL,
+    Lose         INTEGER NOT NULL,
+    Seceder      INTEGER NOT NULL,
+    RegDate      TEXT NOT NULL,
+    DelDate      TEXT NOT NULL,
+    LastDate     TEXT NOT NULL,
+    LastPosition INTEGER NOT NULL,
+    PlayDayCnt   INTEGER NOT NULL,
+    LoginCount   INTEGER NOT NULL,
+    Deleted      INTEGER GENERATED ALWAYS AS (CASE WHEN RegDate = DelDate THEN 0 ELSE 1 END) STORED,
+    FOREIGN KEY (UserUID) REFERENCES GUser(UserUID) ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS IX_GUnit_UserUID ON GUnit (UserUID);
+
+CREATE TABLE IF NOT EXISTS GItem
+(
+    ItemUID            INTEGER PRIMARY KEY AUTOINCREMENT,
+    UnitUID            BIGINT  NOT NULL,
+    ItemID             INTEGER NOT NULL,
+    InventoryCategory  INTEGER NOT NULL,
+    SlotID             INTEGER NOT NULL,
+    RegDate            TEXT NOT NULL,
+    DelDate            TEXT NOT NULL,
+    Deleted            INTEGER GENERATED ALWAYS AS (CASE WHEN RegDate = DelDate THEN 0 ELSE 1 END) STORED,
+    FOREIGN KEY (UnitUID) REFERENCES GUnit(UnitUID) ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS IX_GItem_UnitUID ON GItem (UnitUID);
+CREATE INDEX IF NOT EXISTS IX_GItem_ItemID ON GItem (ItemID);
+
+CREATE TABLE IF NOT EXISTS GSkill
+(
+    UnitUID BIGINT NOT NULL,
+    SkillID INTEGER NOT NULL,
+    RegDate TEXT NOT NULL,
+    PRIMARY KEY (UnitUID, SkillID),
+    FOREIGN KEY (UnitUID) REFERENCES GUnit(UnitUID) ON UPDATE RESTRICT ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS IX_GSkill_SkillID ON GSkill (SkillID);
