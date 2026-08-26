@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Net;
 using System.Net.Sockets;
 using KncWX2Server.Core;
 using KncWX2Server.Persistence;
@@ -51,34 +50,35 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
 
     private async Task HandleClientAsync(long sessionId, TcpClient client, CancellationToken cancellationToken)
     {
-        await using var disposable = client.ConfigureAwait(false);
-
-        Console.WriteLine($"[{options.Role}] client #{sessionId} connected from {client.Client.RemoteEndPoint}");
-
-        try
+        using (client)
         {
-            await using var stream = client.GetStream();
+            Console.WriteLine($"[{options.Role}] client #{sessionId} connected from {client.Client.RemoteEndPoint}");
 
-            while (!cancellationToken.IsCancellationRequested)
+            try
             {
-                var packet = await KncProtocol.ReadAsync(stream, options.MaxPayloadBytes, cancellationToken);
-                await DispatchAsync(sessionId, packet, stream, cancellationToken);
+                await using var stream = client.GetStream();
+
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    var packet = await KncProtocol.ReadAsync(stream, options.MaxPayloadBytes, cancellationToken);
+                    await DispatchAsync(sessionId, packet, stream, cancellationToken);
+                }
             }
-        }
-        catch (EndOfStreamException)
-        {
-            Console.WriteLine($"[{options.Role}] client #{sessionId} disconnected");
-        }
-        catch (IOException ex) when (ex.InnerException is SocketException)
-        {
-            Console.WriteLine($"[{options.Role}] client #{sessionId} socket closed: {ex.Message}");
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[{options.Role}] client #{sessionId} failed: {ex}");
+            catch (EndOfStreamException)
+            {
+                Console.WriteLine($"[{options.Role}] client #{sessionId} disconnected");
+            }
+            catch (IOException ex) when (ex.InnerException is SocketException)
+            {
+                Console.WriteLine($"[{options.Role}] client #{sessionId} socket closed: {ex.Message}");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[{options.Role}] client #{sessionId} failed: {ex}");
+            }
         }
     }
 
