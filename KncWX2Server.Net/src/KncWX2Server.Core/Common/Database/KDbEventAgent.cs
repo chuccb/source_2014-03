@@ -20,6 +20,9 @@ public abstract class KDbEventAgent(DbConnectionId connectionId) : KThreadManage
         KEvent eventObject,
         CancellationToken cancellationToken);
 
+    protected virtual ValueTask OnWorkerStoppedAsync(CancellationToken cancellationToken) =>
+        ValueTask.CompletedTask;
+
     private sealed class Worker(KDbEventAgent owner) : KThread
     {
         private readonly KDbEventAgent _owner =
@@ -27,28 +30,35 @@ public abstract class KDbEventAgent(DbConnectionId connectionId) : KThreadManage
 
         protected override async Task RunAsync(CancellationToken cancellationToken)
         {
-            while (true)
+            try
             {
-                if (_owner.TryGetEventForWorker(out var eventObject, out var terminate))
+                while (true)
                 {
-                    if (terminate)
+                    if (_owner.TryGetEventForWorker(out var eventObject, out var terminate))
+                    {
+                        if (terminate)
+                            return;
+
+                        if (eventObject is not null)
+                            await _owner.ProcessDbEventAsync(eventObject, cancellationToken).ConfigureAwait(false);
+
+                        continue;
+                    }
+
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromMilliseconds(1), cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
                         return;
-
-                    if (eventObject is not null)
-                        await _owner.ProcessDbEventAsync(eventObject, cancellationToken).ConfigureAwait(false);
-
-                    continue;
+                    }
                 }
-
-                try
-                {
-                    await Task.Delay(TimeSpan.FromMilliseconds(1), cancellationToken)
-                        .ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    return;
-                }
+            }
+            finally
+            {
+                await _owner.OnWorkerStoppedAsync(cancellationToken).ConfigureAwait(false);
             }
         }
     }
