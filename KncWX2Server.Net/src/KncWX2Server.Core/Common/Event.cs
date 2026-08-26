@@ -22,21 +22,19 @@ public sealed class KPerformerInfo
 
     public long GetFirstUid() => Uids.Count == 0 ? -1 : Uids.Min;
 
-    internal bool WriteTo(KSerializer serializer)
+    internal bool WriteFields(KSerializer serializer)
     {
         if (!serializer.Put(PerformerId) || !serializer.WriteTag(SerializeTag.Set) || !serializer.Put((uint)Uids.Count))
             return false;
 
         foreach (var uid in Uids)
-        {
             if (!serializer.Put(uid))
                 return false;
-        }
 
         return true;
     }
 
-    internal bool ReadFrom(KSerializer serializer)
+    internal bool ReadFields(KSerializer serializer)
     {
         Uids.Clear();
         if (!serializer.Get(out uint performerId) || !serializer.ReadAndCheckTag(SerializeTag.Set) || !serializer.Get(out uint count))
@@ -45,10 +43,8 @@ public sealed class KPerformerInfo
             return false;
 
         for (var i = 0; i < count; i++)
-        {
             if (!serializer.Get(out long uid) || !Uids.Add(uid))
                 return false;
-        }
 
         PerformerId = performerId;
         return true;
@@ -77,7 +73,6 @@ public sealed class KEvent
     {
         Destination.PerformerId = performerId;
         EventId = eventId;
-
         FirstTrace = trace.Length > 0 ? trace[0] : -1;
         LastTrace = trace.Length > 1 ? trace[1] : -1;
     }
@@ -113,23 +108,26 @@ public sealed class KEvent
         return clone;
     }
 
-    internal bool WriteTo(KSerializer serializer)
+    internal bool WriteFields(KSerializer serializer)
     {
+        // Legacy KEvent::Put writes KPerformerInfo through KSerializer::Put,
+        // therefore the nested user-class tag is present here as well.
         if (!serializer.WriteTag(SerializeTag.UserClass) ||
-            !Destination.WriteTo(serializer) ||
+            !Destination.WriteFields(serializer) ||
             !serializer.Put(FirstTrace) ||
             !serializer.Put(LastTrace) ||
             !serializer.Put(EventId) ||
             !serializer.Put(Buffer))
             return false;
 
+        // FromType intentionally is not serialized: the 2014 Event.cpp did not include it.
         return true;
     }
 
-    internal bool ReadFrom(KSerializer serializer)
+    internal bool ReadFields(KSerializer serializer)
     {
         if (!serializer.ReadAndCheckTag(SerializeTag.UserClass) ||
-            !Destination.ReadFrom(serializer) ||
+            !Destination.ReadFields(serializer) ||
             !serializer.Get(out long firstTrace) ||
             !serializer.Get(out long lastTrace) ||
             !serializer.Get(out ushort eventId) ||
