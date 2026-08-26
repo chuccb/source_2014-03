@@ -484,17 +484,19 @@ public sealed class KSerializer
     public delegate bool KeyValueInserter<TKey, TValue>(TKey key, TValue value);
 
     public bool GetMap<TKey, TValue>(
+        Action clearEntries,
         KeyValueInserter<TKey, TValue> insertEntry,
         KeyValueReader<TKey, TValue> readEntry)
     {
-        return GetMapLike(SerializeTag.Map, insertEntry, readEntry);
+        return GetMapLike(SerializeTag.Map, clearEntries, insertEntry, readEntry);
     }
 
     public bool GetMultimap<TKey, TValue>(
+        Action clearEntries,
         KeyValueInserter<TKey, TValue> insertEntry,
         KeyValueReader<TKey, TValue> readEntry)
     {
-        return GetMapLike(SerializeTag.Multimap, insertEntry, readEntry);
+        return GetMapLike(SerializeTag.Multimap, clearEntries, insertEntry, readEntry);
     }
 
     private bool PutMapLike<TKey, TValue>(
@@ -524,12 +526,15 @@ public sealed class KSerializer
 
     private bool GetMapLike<TKey, TValue>(
         SerializeTag tag,
+        Action clearEntries,
         KeyValueInserter<TKey, TValue> insertEntry,
         KeyValueReader<TKey, TValue> readEntry)
     {
+        ArgumentNullException.ThrowIfNull(clearEntries);
         ArgumentNullException.ThrowIfNull(insertEntry);
         ArgumentNullException.ThrowIfNull(readEntry);
 
+        clearEntries();
         if (!ReadAndCheckTag(tag) || !Get(out uint count))
             return false;
 
