@@ -84,7 +84,7 @@ public sealed class GupCreateUnitService
                 return await RollbackAsync(transaction, new(-12, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
 
             if (nickname.Length > 16)
-                return await RollbackAsync(transaction, new(-13, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
+                return await RollbackAsync(transaction, new(-13, unitUid, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
 
             if (!await InsertUnitNicknameAsync(
                     connection,
@@ -93,7 +93,7 @@ public sealed class GupCreateUnitService
                     nickname,
                     nowText,
                     cancellationToken).ConfigureAwait(false))
-                return await RollbackAsync(transaction, new(-13, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
+                return await RollbackAsync(transaction, new(-13, unitUid, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
 
             for (var questionNo = 1; questionNo <= 4; questionNo++)
             {
@@ -103,7 +103,7 @@ public sealed class GupCreateUnitService
                         unitUid,
                         questionNo,
                         cancellationToken).ConfigureAwait(false))
-                    return await RollbackAsync(transaction, new(-14, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
+                    return await RollbackAsync(transaction, new(-14, unitUid, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
             }
 
             await InsertInitialQuestAsync(
@@ -123,7 +123,7 @@ public sealed class GupCreateUnitService
                         initialSkill.SkillId,
                         nowText,
                         cancellationToken).ConfigureAwait(false))
-                    return await RollbackAsync(transaction, new(initialSkill.SkillErrorCode, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
+                    return await RollbackAsync(transaction, new(initialSkill.SkillErrorCode, unitUid, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
 
                 if (!await InsertSkillSlotAsync(
                         connection,
@@ -131,7 +131,7 @@ public sealed class GupCreateUnitService
                         unitUid,
                         initialSkill.SkillId,
                         cancellationToken).ConfigureAwait(false))
-                    return await RollbackAsync(transaction, new(initialSkill.SkillSlotErrorCode, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
+                    return await RollbackAsync(transaction, new(initialSkill.SkillSlotErrorCode, unitUid, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
             }
 
             if (!await InsertSpiritAsync(
@@ -141,7 +141,7 @@ public sealed class GupCreateUnitService
                     startSpirit,
                     nowText,
                     cancellationToken).ConfigureAwait(false))
-                return await RollbackAsync(transaction, new(-21, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
+                return await RollbackAsync(transaction, new(-21, unitUid, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return new(0, unitUid, legacyNicknameDate ?? LegacySqlDateFallback);
