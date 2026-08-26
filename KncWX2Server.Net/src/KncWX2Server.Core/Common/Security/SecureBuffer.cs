@@ -37,7 +37,7 @@ public sealed class SecureBuffer
     private bool CreateCore(ReadOnlySpan<byte> payload, bool incrementSequence)
     {
         var association = _database.Get(_spi);
-        var pad = GeneratePadding(payload.Length, association);
+        var pad = GeneratePadding(payload.Length);
         var plainLength = checked(payload.Length + pad.Length + 1);
         if ((plainLength & (SecurityAssociation.BlockSize - 1)) != 0)
             return false;
@@ -47,7 +47,7 @@ public sealed class SecureBuffer
         pad.CopyTo(plain.AsSpan(payload.Length));
         plain[^1] = checked((byte)pad.Length);
 
-        var iv = GenerateIv(association.IvSize());
+        var iv = GenerateIv(SecurityAssociation.IvSize);
         var crypt = association.Encrypt(plain, iv);
 
         var secureWithoutIcv = new byte[checked(sizeof(ushort) + sizeof(uint) + iv.Length + crypt.Length)];
@@ -138,15 +138,15 @@ public sealed class SecureBuffer
     {
         var association = GetAssociation();
         var ivOffset = sizeof(ushort) + sizeof(uint);
-        if (ivOffset + association.IvSize > _buffer.Length)
+        if (ivOffset + SecurityAssociation.IvSize > _buffer.Length)
             return false;
 
-        var iv = _buffer.AsSpan(ivOffset, association.IvSize).ToArray();
-        var cryptOffset = ivOffset + association.IvSize;
-        if (cryptOffset + association.IcvSize > _buffer.Length)
+        var iv = _buffer.AsSpan(ivOffset, SecurityAssociation.IvSize).ToArray();
+        var cryptOffset = ivOffset + SecurityAssociation.IvSize;
+        if (cryptOffset + SecurityAssociation.IcvSize > _buffer.Length)
             return false;
 
-        var cryptLength = _buffer.Length - cryptOffset - association.IcvSize;
+        var cryptLength = _buffer.Length - cryptOffset - SecurityAssociation.IcvSize;
         var crypt = _buffer.AsSpan(cryptOffset, cryptLength);
         var decrypted = association.Decrypt(crypt, iv);
         if (decrypted.Length == 0 || !TryRemovePadding(decrypted, out var actualLength))
@@ -168,20 +168,19 @@ public sealed class SecureBuffer
 
     private bool IsValidSize()
     {
-        var association = GetAssociation();
-        var minimum = sizeof(ushort) + sizeof(uint) + association.IvSize + sizeof(byte) + association.IcvSize;
+        var minimum = sizeof(ushort) + sizeof(uint) + SecurityAssociation.IvSize + sizeof(byte) + SecurityAssociation.IcvSize;
         return _buffer.Length >= minimum;
     }
 
     private bool IsValidIcv()
     {
         var association = GetAssociation();
-        if (_buffer.Length < association.IcvSize)
+        if (_buffer.Length < SecurityAssociation.IcvSize)
             return false;
 
-        var icvOffset = _buffer.Length - association.IcvSize;
+        var icvOffset = _buffer.Length - SecurityAssociation.IcvSize;
         var expected = association.GenerateIcv(_buffer.AsSpan(0, icvOffset));
-        var actual = _buffer.AsSpan(icvOffset, association.IcvSize);
+        var actual = _buffer.AsSpan(icvOffset, SecurityAssociation.IcvSize);
         return CryptographicOperations.FixedTimeEquals(actual, expected);
     }
 
@@ -199,7 +198,7 @@ public sealed class SecureBuffer
         return iv;
     }
 
-    private static byte[] GeneratePadding(int payloadLength, SecurityAssociation association)
+    private static byte[] GeneratePadding(int payloadLength)
     {
         var nPadBytes = SecurityAssociation.BlockSize - ((payloadLength + 1) % SecurityAssociation.BlockSize);
         // The 2014 source currently has nRand == 0, so no extra random blocks are appended.
@@ -229,9 +228,4 @@ public sealed class SecureBuffer
         actualLength = padStart;
         return true;
     }
-}
-
-internal static class SecurityAssociationSizeExtensions
-{
-    public static int IvSize(this SecurityAssociation association) => SecurityAssociation.IvSize;
 }
