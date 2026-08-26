@@ -9,7 +9,7 @@ public sealed class KUnitSkillData
     public KSkillData[] EquippedSkillSlotB { get; } = new KSkillData[EquippedSkillSlotCount];
 
     public string SkillSlotBEndDate { get; set; } = string.Empty;
-    public byte SkillSlotBExpirationState { get; set; }
+    public sbyte SkillSlotBExpirationState { get; set; }
 
     public List<KSkillData> PassiveSkills { get; } = [];
     public List<KSkillData> GuildPassiveSkills { get; } = [];
