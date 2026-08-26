@@ -1,0 +1,23 @@
+name: KncWX2Server .NET Preview
+
+on:
+  push:
+    paths:
+      - 'KncWX2Server.Net/**'
+  pull_request:
+    paths:
+      - 'KncWX2Server.Net/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+      - name: Restore
+        run: dotnet restore KncWX2Server.Net/KncWX2Server.slnx
+      - name: Build
+        run: dotnet build KncWX2Server.Net/KncWX2Server.slnx -c Release --no-restore
