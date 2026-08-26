@@ -53,8 +53,8 @@ public static class KBuffInfoSerialization
     }
 
     public static bool Put(this KSerializer serializer, KBuffFactor value) =>
-        serializer.PutVector(value.BehaviorFactors, static (KSerializer s, KBuffBehaviorFactor item) => s.Put(item))
-        && serializer.PutVector(value.FinalizerFactors, static (KSerializer s, KBuffFinalizerFactor item) => s.Put(item))
+        serializer.PutVector(value.BehaviorFactors, KBuffBehaviorFactorSerialization.Put)
+        && serializer.PutVector(value.FinalizerFactors, KBuffFinalizerFactorSerialization.Put)
         && serializer.Put(value.BuffIdentity)
         && serializer.Put(value.AccumulationMultiplier)
         && serializer.Put(value.AccumulationCountNow)
@@ -64,8 +64,8 @@ public static class KBuffInfoSerialization
     {
         value = new();
 
-        if (!serializer.GetVector(value.BehaviorFactors, static (KSerializer s, out KBuffBehaviorFactor item) => s.Get(out item))
-            || !serializer.GetVector(value.FinalizerFactors, static (KSerializer s, out KBuffFinalizerFactor item) => s.Get(out item))
+        if (!serializer.GetVector(value.BehaviorFactors, KBuffBehaviorFactorSerialization.Get)
+            || !serializer.GetVector(value.FinalizerFactors, KBuffFinalizerFactorSerialization.Get)
             || !serializer.Get(out KBuffIdentity buffIdentity)
             || !serializer.Get(out float accumulationMultiplier)
             || !serializer.Get(out byte accumulationCountNow)
@@ -98,4 +98,22 @@ public static class KBuffInfoSerialization
         value.BuffEndTime = buffEndTime;
         return true;
     }
+}
+
+public static class KBuffBehaviorFactorSerialization
+{
+    public static bool Put(this KSerializer serializer, KBuffBehaviorFactor value) =>
+        KBuffInfoSerialization.Put(serializer, value);
+
+    public static bool Get(this KSerializer serializer, out KBuffBehaviorFactor value) =>
+        KBuffInfoSerialization.Get(serializer, out value);
+}
+
+public static class KBuffFinalizerFactorSerialization
+{
+    public static bool Put(this KSerializer serializer, KBuffFinalizerFactor value) =>
+        KBuffInfoSerialization.Put(serializer, value);
+
+    public static bool Get(this KSerializer serializer, out KBuffFinalizerFactor value) =>
+        KBuffInfoSerialization.Get(serializer, out value);
 }
