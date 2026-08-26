@@ -13,7 +13,7 @@ public static class KSkillDataSerialization
     {
         value = default;
 
-        if (!serializer.Get(out short skillId)
+        if (!serializer.Get(out int skillId)
             || !serializer.Get(out byte skillLevel))
             return false;
 
