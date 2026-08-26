@@ -8,7 +8,7 @@ namespace KncWX2Server.Core.Common.Threading;
 /// </summary>
 public abstract class KThreadManager : KPerformer, IAsyncDisposable
 {
-    private readonly object _threadGate = new();
+    private readonly Lock _threadGate = new();
     private readonly List<KThread> _threads = [];
     private int _terminateReserved;
     private int _terminatedCount;
@@ -23,6 +23,8 @@ public abstract class KThreadManager : KPerformer, IAsyncDisposable
     }
 
     public int TerminatedCount => Volatile.Read(ref _terminatedCount);
+
+    public bool TerminationReserved => Volatile.Read(ref _terminateReserved) != 0;
 
     public virtual void Init(int threadCount)
     {
@@ -52,8 +54,32 @@ public abstract class KThreadManager : KPerformer, IAsyncDisposable
         lock (_threadGate)
             threads = [.. _threads];
 
-        var tasks = threads.Select(thread => thread.EndAsync(timeout).AsTask()).ToArray();
-        await Task.WhenAll(tasks).ConfigureAwait(false);
+        var deadline = DateTime.UtcNow + timeout;
+        var gracefullyExited = true;
+
+        foreach (var thread in threads)
+        {
+            var remaining = deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero || !await thread.WaitAsync(remaining).ConfigureAwait(false))
+            {
+                gracefullyExited = false;
+                break;
+            }
+        }
+
+        if (!gracefullyExited)
+        {
+            foreach (var thread in threads)
+                thread.RequestStop();
+
+            foreach (var thread in threads)
+            {
+                var remaining = deadline - DateTime.UtcNow;
+                if (remaining > TimeSpan.Zero)
+                    await thread.WaitAsync(remaining).ConfigureAwait(false);
+                thread.CleanupCompletedTask();
+            }
+        }
 
         lock (_threadGate)
             _threads.Clear();
@@ -95,7 +121,7 @@ public abstract class KThreadManager : KPerformer, IAsyncDisposable
             return true;
         }
 
-        if (Volatile.Read(ref _terminateReserved) != 0 && QueueSize == 0)
+        if (TerminationReserved && QueueSize == 0)
         {
             Interlocked.Increment(ref _terminatedCount);
             eventObject = null;
