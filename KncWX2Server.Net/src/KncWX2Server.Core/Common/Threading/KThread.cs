@@ -59,7 +59,7 @@ public abstract class KThread : IAsyncDisposable
         CleanupCompletedTask();
     }
 
-    protected void CleanupCompletedTask()
+    internal void CleanupCompletedTask()
     {
         lock (_gate)
         {
