@@ -7,7 +7,7 @@ public sealed class KPerformerInfo
     public const int MaxUidCount = 2000;
 
     public uint PerformerId { get; set; }
-    public HashSet<long> Uids { get; } = [];
+    public SortedSet<long> Uids { get; } = [];
 
     public bool FindUid(long uid) => Uids.Contains(uid);
 
@@ -20,7 +20,7 @@ public sealed class KPerformerInfo
 
     public int UidListSize => Uids.Count;
 
-    public long GetFirstUid() => Uids.Count == 0 ? -1 : Uids.Min();
+    public long GetFirstUid() => Uids.Count == 0 ? -1 : Uids.Min;
 
     internal bool WriteTo(KSerializer serializer)
     {
@@ -55,17 +55,18 @@ public sealed class KPerformerInfo
     }
 }
 
-/// <summary>
-/// Managed representation of the legacy KEvent.
-/// Trace has exactly two slots and -1 means an empty slot.
-/// </summary>
+/// <summary>Managed representation of the legacy KEvent.</summary>
 public sealed class KEvent
 {
+    public const ushort EventFromNone = 0;
+    public const ushort EventFromServer = 1;
+    public const ushort EventFromClient = 2;
+
     public KPerformerInfo Destination { get; } = new();
     public long FirstTrace { get; private set; } = -1;
     public long LastTrace { get; private set; } = -1;
     public ushort EventId { get; private set; }
-    public ushort FromType { get; private set; }
+    public ushort FromType { get; private set; } = EventFromNone;
     public SerBuffer Buffer { get; } = new();
 
     public long FirstSenderUid => FirstTrace;
@@ -76,14 +77,8 @@ public sealed class KEvent
     {
         Destination.PerformerId = performerId;
         EventId = eventId;
-        if (trace.Length == 0)
-        {
-            FirstTrace = -1;
-            LastTrace = -1;
-            return;
-        }
 
-        FirstTrace = trace[0];
+        FirstTrace = trace.Length > 0 ? trace[0] : -1;
         LastTrace = trace.Length > 1 ? trace[1] : -1;
     }
 
@@ -109,8 +104,7 @@ public sealed class KEvent
     {
         var clone = new KEvent();
         clone.Destination.PerformerId = Destination.PerformerId;
-        foreach (var uid in Destination.Uids)
-            clone.Destination.Uids.Add(uid);
+        clone.Destination.Uids.UnionWith(Destination.Uids);
         clone.FirstTrace = FirstTrace;
         clone.LastTrace = LastTrace;
         clone.EventId = EventId;
