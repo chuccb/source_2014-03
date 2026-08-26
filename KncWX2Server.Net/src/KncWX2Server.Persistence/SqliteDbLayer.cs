@@ -14,6 +14,7 @@ public sealed class SqliteDbLayer : IAsyncDisposable
     private readonly Dictionary<DbConnectionId, SqliteDatabase> _databases = [];
     private readonly IReadOnlyDictionary<DbConnectionId, string> _databasePaths;
     private readonly int _workerCount;
+    private Action<DbConnectionId, ushort>? _unknownEventHandler;
     private bool _initialized;
     private bool _started;
 
@@ -41,6 +42,8 @@ public sealed class SqliteDbLayer : IAsyncDisposable
     public void SetUnknownEventHandler(Action<DbConnectionId, ushort> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
+        _unknownEventHandler = handler;
+
         foreach (var agent in _agents.Values)
             agent.UnknownEvent = handler;
     }
@@ -116,7 +119,10 @@ public sealed class SqliteDbLayer : IAsyncDisposable
 
         var database = new SqliteDatabase(path);
         var handlers = new SqliteDbEventHandlerRegistry();
-        var agent = new SqliteDbAgent(connectionId, database, handlers);
+        var agent = new SqliteDbAgent(connectionId, database, handlers)
+        {
+            UnknownEvent = _unknownEventHandler,
+        };
 
         _databases.Add(connectionId, database);
         _agents.Add(connectionId, agent);
