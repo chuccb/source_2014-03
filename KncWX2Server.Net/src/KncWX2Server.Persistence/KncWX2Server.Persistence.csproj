@@ -15,5 +15,6 @@
     <EmbeddedResource Update="Migrations/001_initial.sql" LogicalName="KncWX2Server.Persistence.Migrations.001_initial.sql" />
     <EmbeddedResource Update="Migrations/002_gup_create_unit_schema.sql" LogicalName="KncWX2Server.Persistence.Migrations.002_gup_create_unit_schema.sql" />
     <EmbeddedResource Update="Migrations/003_fix_gunit_nickname_schema.sql" LogicalName="KncWX2Server.Persistence.Migrations.003_fix_gunit_nickname_schema.sql" />
+    <EmbeddedResource Update="Migrations/004_gup_delete_unit_schema.sql" LogicalName="KncWX2Server.Persistence.Migrations.004_gup_delete_unit_schema.sql" />
   </ItemGroup>
 </Project>
