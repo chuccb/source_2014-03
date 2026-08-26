@@ -3,7 +3,7 @@ namespace KncWX2Server.Core.Common.Threading;
 /// <summary>Managed thread abstraction corresponding to legacy KThread.</summary>
 public abstract class KThread : IAsyncDisposable
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private CancellationTokenSource? _shutdown;
     private Task? _task;
 
@@ -18,45 +18,56 @@ public abstract class KThread : IAsyncDisposable
 
             _shutdown?.Dispose();
             _shutdown = new CancellationTokenSource();
-            _task = Task.Run(() => RunAsync(_shutdown.Token), CancellationToken.None);
+            var cancellationToken = _shutdown.Token;
+            _task = Task.Run(() => RunAsync(cancellationToken), CancellationToken.None);
             return true;
+        }
+    }
+
+    /// <summary>Requests immediate cancellation, matching a direct KThread shutdown.</summary>
+    public void RequestStop()
+    {
+        lock (_gate)
+            _shutdown?.Cancel();
+    }
+
+    /// <summary>Waits for the current worker without changing its shutdown mode.</summary>
+    public async ValueTask<bool> WaitAsync(TimeSpan timeout)
+    {
+        Task? task;
+        lock (_gate)
+            task = _task;
+
+        if (task is null)
+            return true;
+
+        try
+        {
+            await task.WaitAsync(timeout).ConfigureAwait(false);
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            return false;
         }
     }
 
     public async ValueTask EndAsync(TimeSpan timeout)
     {
-        Task? task;
-        CancellationTokenSource? shutdown;
+        RequestStop();
+        await WaitAsync(timeout).ConfigureAwait(false);
+        CleanupCompletedTask();
+    }
 
+    protected void CleanupCompletedTask()
+    {
         lock (_gate)
         {
-            task = _task;
-            shutdown = _shutdown;
-        }
-
-        if (task is null)
-            return;
-
-        shutdown?.Cancel();
-
-        try
-        {
-            await task.WaitAsync(timeout).ConfigureAwait(false);
-        }
-        catch (TimeoutException)
-        {
-            // Legacy End() also returns after its timeout if the worker did not exit.
-        }
-        finally
-        {
-            lock (_gate)
+            if (_task is { IsCompleted: true })
             {
-                if (ReferenceEquals(task, _task) && task.IsCompleted)
-                {
-                    _task = null;
-                    _shutdown?.Dispose();
-                    _shutdown = null;
-                }
+                _task = null;
+                _shutdown?.Dispose();
+                _shutdown = null;
             }
         }
     }
