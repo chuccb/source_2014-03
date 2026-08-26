@@ -1,5 +1,8 @@
 using System.Buffers.Binary;
 using System.Text;
+using KncWX2Server.Core.Common.Security;
+using CoreEvent = KncWX2Server.Core.Common.KEvent;
+using CorePerformerInfo = KncWX2Server.Core.Common.KPerformerInfo;
 
 namespace KncWX2Server.Core.Common.Serialization;
 
@@ -290,6 +293,73 @@ public sealed class KSerializer
             return false;
         value.LoadSerialized(bytes, compressed);
         return true;
+    }
+
+    public bool Put(ByteStream value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        if (!WriteTag(SerializeTag.UserClass))
+            return false;
+        return SecuritySerialization.Write(this, value);
+    }
+
+    public bool Get(ByteStream value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return ReadAndCheckTag(SerializeTag.UserClass) && SecuritySerialization.Read(this, value);
+    }
+
+    public bool Put(SecurityAssociation value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return WriteTag(SerializeTag.UserClass)
+            && Put(value.AuthKey)
+            && Put(value.CryptoKey)
+            && Put(value.SequenceNumber)
+            && Put(value.LastSequenceNumber)
+            && Put(value.ReplayWindowMask);
+    }
+
+    public bool Get(SecurityAssociation value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        if (!ReadAndCheckTag(SerializeTag.UserClass)
+            || !Get(out ByteStream authKey)
+            || !Get(out ByteStream cryptoKey)
+            || !Get(out uint sequenceNumber)
+            || !Get(out uint lastSequenceNumber)
+            || !Get(out uint replayWindowMask))
+            return false;
+
+        value.SetAuthKey(authKey.Span);
+        value.SetCryptoKey(cryptoKey.Span);
+        value.Restore(new SecurityAssociationState(
+            authKey.ToArray(), cryptoKey.ToArray(), sequenceNumber, lastSequenceNumber, replayWindowMask));
+        return true;
+    }
+
+    public bool Put(CorePerformerInfo value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return WriteTag(SerializeTag.UserClass) && value.WriteFields(this);
+    }
+
+    public bool Get(CorePerformerInfo value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return ReadAndCheckTag(SerializeTag.UserClass) && value.ReadFields(this);
+    }
+
+    public bool Put(CoreEvent value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return WriteTag(SerializeTag.UserClass) && value.WriteFields(this);
+    }
+
+    public bool Get(CoreEvent value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return ReadAndCheckTag(SerializeTag.UserClass) && value.ReadFields(this);
     }
 
     public bool WriteTag(SerializeTag tag)
