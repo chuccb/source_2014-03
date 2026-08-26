@@ -1,5 +1,6 @@
 namespace KncWX2Server.Core.Common.Database;
 
+using KncWX2Server.Core.Common;
 using KncWX2Server.Core.Common.Threading;
 
 /// <summary>
@@ -26,7 +27,7 @@ public abstract class KDbEventAgent(DbConnectionId connectionId) : KThreadManage
 
         protected override async Task RunAsync(CancellationToken cancellationToken)
         {
-            while (!cancellationToken.IsCancellationRequested)
+            while (true)
             {
                 if (_owner.TryGetEventForWorker(out var eventObject, out var terminate))
                 {
@@ -39,8 +40,15 @@ public abstract class KDbEventAgent(DbConnectionId connectionId) : KThreadManage
                     continue;
                 }
 
-                await Task.Delay(TimeSpan.FromMilliseconds(1), cancellationToken)
-                    .ConfigureAwait(false);
+                try
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(1), cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
             }
         }
     }
