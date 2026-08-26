@@ -27,7 +27,7 @@ public sealed class SqliteDbAgent(
     /// <summary>Called instead of throwing when no legacy EventId handler exists.</summary>
     public Action<DbConnectionId, ushort>? UnknownEvent { get; set; }
 
-    protected override int GetPfId() => ConnectionId switch
+    public override int GetPfId() => ConnectionId switch
     {
         DbConnectionId.Account => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerAccountDb)),
         DbConnectionId.Game => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerGameDb)),
