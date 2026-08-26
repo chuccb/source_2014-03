@@ -51,31 +51,21 @@ public static class KUnitSkillDataSerialization
 
         for (var i = 0; i < KUnitSkillData.EquippedSkillSlotCount; i++)
             if (!serializer.Get(out value.EquippedSkills[i]))
-            {
-                value = default!;
                 return false;
-            }
 
         for (var i = 0; i < KUnitSkillData.EquippedSkillSlotCount; i++)
             if (!serializer.Get(out value.EquippedSkillSlotB[i]))
-            {
-                value = default!;
                 return false;
-            }
 
-        if (!serializer.GetWString(out var endDate)
+        if (!serializer.GetWString(out value.SkillSlotBEndDate)
             || !serializer.Get(out value.SkillSlotBExpirationState)
             || !serializer.GetVector(value.PassiveSkills, static (KSerializer s, out KSkillData skill) => s.Get(out skill))
             || !serializer.GetVector(value.GuildPassiveSkills, static (KSerializer s, out KSkillData skill) => s.Get(out skill))
             || !serializer.GetVector(value.SkillNotes, static (KSerializer s, out int note) => s.Get(out note))
             || !serializer.Get(out value.ActiveSkillPagesNumber)
             || !serializer.Get(out value.AvailableSkillPagesNumber))
-        {
-            value = default!;
             return false;
-        }
 
-        value.SkillSlotBEndDate = endDate;
         return true;
     }
 }
