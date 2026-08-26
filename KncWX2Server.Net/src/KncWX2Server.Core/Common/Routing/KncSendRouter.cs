@@ -1,4 +1,5 @@
 using KncWX2Server.Core.Common;
+using KncWX2Server.Core.Common.Database;
 
 namespace KncWX2Server.Core.Common.Routing;
 
@@ -12,7 +13,7 @@ public interface IKncSendRoutingContext
     long LocalServerUid { get; }
 
     void QueueToLocalServer(KEvent value);
-    void QueueToDatabase(KEvent value);
+    void QueueToDatabase(DbConnectionId connectionId, KEvent value);
 
     bool TryGetLocalUser(long uid, out IKncSendActor? actor);
     bool TryFindLocalCharacter(long uid);
@@ -36,8 +37,6 @@ public interface IKncSendActor
 /// </summary>
 public sealed class KncSendRouter(IKncSendRoutingContext context)
 {
-    public const string InvalidDownstreamSourceMessage = "SendPacket should be used for a user-originated downstream send.";
-
     private readonly IKncSendRoutingContext _context =
         context ?? throw new ArgumentNullException(nameof(context));
 
@@ -93,7 +92,11 @@ public sealed class KncSendRouter(IKncSendRoutingContext context)
             case PerformerRouting.PerformerEventDb:
             case PerformerRouting.PerformerPublisherAuthDb:
             case PerformerRouting.PerformerScriptDb:
-                _context.QueueToDatabase(value);
+                if (DbConnectionIdExtensions.TryMapPerformerClass(
+                    PerformerRouting.GetPerformerClass(value.Destination.PerformerId), out var connectionId))
+                {
+                    _context.QueueToDatabase(connectionId, value);
+                }
                 break;
 
             case PerformerRouting.PerformerUser:
@@ -130,7 +133,6 @@ public sealed class KncSendRouter(IKncSendRoutingContext context)
                 break;
 
             default:
-                // The C++ implementation logs here and otherwise drops the event.
                 break;
         }
     }
