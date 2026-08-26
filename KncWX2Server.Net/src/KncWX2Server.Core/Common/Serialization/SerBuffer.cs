@@ -118,5 +118,11 @@ public sealed class SerBuffer
     public override bool Equals(object? obj) =>
         obj is SerBuffer other && _buffer.AsSpan().SequenceEqual(other._buffer);
 
-    public override int GetHashCode() => HashCode.Combine(_buffer.Length, _compressed);
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (var value in _buffer)
+            hash.Add(value);
+        return hash.ToHashCode();
+    }
 }
