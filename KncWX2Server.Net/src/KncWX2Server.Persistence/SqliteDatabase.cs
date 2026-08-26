@@ -20,9 +20,7 @@ public sealed class SqliteDatabase(string databasePath) : IAsyncDisposable
             ?? throw new InvalidOperationException("SQLite did not return a runtime version.");
 
         if (!Version.TryParse(version, out var parsed) || parsed.Major != 3 || parsed.Minor != 53)
-        {
             throw new NotSupportedException($"KncWX2Server requires SQLite 3.53.x, but the loaded native library reports {version}.");
-        }
 
         await ApplyMigrationsAsync(connection, cancellationToken);
     }
@@ -57,7 +55,9 @@ public sealed class SqliteDatabase(string databasePath) : IAsyncDisposable
             Batteries_V2.Init();
     }
 
-    private static async Task ApplyMigrationsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    private static async ValueTask ApplyMigrationsAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
     {
         await using (var metadata = connection.CreateCommand())
         {
@@ -72,28 +72,21 @@ public sealed class SqliteDatabase(string databasePath) : IAsyncDisposable
         }
 
         var assembly = typeof(SqliteDatabase).Assembly;
-        var resources = assembly.GetManifestResourceNames()
-            .Where(static name => name.EndsWith(".sql", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(static name => name, StringComparer.Ordinal);
-
-        foreach (var resourceName in resources)
+        foreach (var migrationDefinition in MigrationManifest.All)
         {
-            var version = Path.GetFileNameWithoutExtension(resourceName)
-                ?? throw new InvalidOperationException($"Invalid migration resource name: {resourceName}");
-
             await using var check = connection.CreateCommand();
             check.CommandText = "SELECT 1 FROM __KncMigrations WHERE Version = $version LIMIT 1;";
-            check.Parameters.AddWithValue("$version", version);
+            check.Parameters.AddWithValue("$version", migrationDefinition.Version);
 
             if (await check.ExecuteScalarAsync(cancellationToken) is not null)
                 continue;
 
-            await using var stream = assembly.GetManifestResourceStream(resourceName)
-                ?? throw new InvalidOperationException($"Missing migration resource: {resourceName}");
+            await using var stream = assembly.GetManifestResourceStream(migrationDefinition.ResourceName)
+                ?? throw new InvalidOperationException($"Missing migration resource: {migrationDefinition.ResourceName}");
             using var reader = new StreamReader(stream);
             var sql = await reader.ReadToEndAsync(cancellationToken);
 
-            await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
             await using var migration = connection.CreateCommand();
             migration.Transaction = transaction;
             migration.CommandText = sql;
@@ -102,7 +95,7 @@ public sealed class SqliteDatabase(string databasePath) : IAsyncDisposable
             await using var mark = connection.CreateCommand();
             mark.Transaction = transaction;
             mark.CommandText = "INSERT INTO __KncMigrations (Version, AppliedAt) VALUES ($version, $appliedAt);";
-            mark.Parameters.AddWithValue("$version", version);
+            mark.Parameters.AddWithValue("$version", migrationDefinition.Version);
             mark.Parameters.AddWithValue("$appliedAt", DateTimeOffset.UtcNow.ToString("O"));
             await mark.ExecuteNonQueryAsync(cancellationToken);
 
@@ -110,7 +103,10 @@ public sealed class SqliteDatabase(string databasePath) : IAsyncDisposable
         }
     }
 
-    private static async Task<string?> ScalarStringAsync(SqliteConnection connection, string sql, CancellationToken cancellationToken)
+    private static async ValueTask<string?> ScalarStringAsync(
+        SqliteConnection connection,
+        string sql,
+        CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.CommandText = sql;
