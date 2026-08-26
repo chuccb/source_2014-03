@@ -16,11 +16,11 @@ public static class KUnitInfoNestedSerialization
     {
         value = default;
 
-        if (!serializer.Get(out var dungeonId)
-            || !serializer.Get(out var maxScore)
+        if (!serializer.Get(out int dungeonId)
+            || !serializer.Get(out int maxScore)
             || !serializer.Get(out sbyte maxTotalRank)
-            || !serializer.GetWString(out var clearTime)
-            || !serializer.Get(out var isNew))
+            || !serializer.GetWString(out string clearTime)
+            || !serializer.Get(out bool isNew))
             return false;
 
         value = new(dungeonId, maxScore, maxTotalRank, clearTime, isNew);
@@ -37,10 +37,10 @@ public static class KUnitInfoNestedSerialization
     {
         value = default;
 
-        if (!serializer.Get(out var dungeonId)
-            || !serializer.Get(out var playTimes)
-            || !serializer.Get(out var clearTimes)
-            || !serializer.Get(out var isNew))
+        if (!serializer.Get(out int dungeonId)
+            || !serializer.Get(out int playTimes)
+            || !serializer.Get(out int clearTimes)
+            || !serializer.Get(out bool isNew))
             return false;
 
         value = new(dungeonId, playTimes, clearTimes, isNew);
@@ -56,9 +56,9 @@ public static class KUnitInfoNestedSerialization
     {
         value = default;
 
-        if (!serializer.Get(out var tcId)
-            || !serializer.GetWString(out var clearTime)
-            || !serializer.Get(out var isNew))
+        if (!serializer.Get(out int tcId)
+            || !serializer.GetWString(out string clearTime)
+            || !serializer.Get(out bool isNew))
             return false;
 
         value = new(tcId, clearTime, isNew);
@@ -75,10 +75,10 @@ public static class KUnitInfoNestedSerialization
     {
         value = default;
 
-        if (!serializer.Get(out var mapId)
-            || !serializer.Get(out var lastTouchLineIndex)
-            || !serializer.Get(out var lastPosValue)
-            || !serializer.Get(out var ignoreLastTouch))
+        if (!serializer.Get(out int mapId)
+            || !serializer.Get(out byte lastTouchLineIndex)
+            || !serializer.Get(out ushort lastPosValue)
+            || !serializer.Get(out bool ignoreLastTouch))
             return false;
 
         value = new(mapId, lastTouchLineIndex, lastPosValue, ignoreLastTouch);
@@ -95,10 +95,10 @@ public static class KUnitInfoNestedSerialization
     {
         value = default;
 
-        if (!serializer.Get(out var guildUid)
-            || !serializer.GetWString(out var guildName)
-            || !serializer.Get(out var membershipGrade)
-            || !serializer.Get(out var honorPoint))
+        if (!serializer.Get(out int guildUid)
+            || !serializer.GetWString(out string guildName)
+            || !serializer.Get(out byte membershipGrade)
+            || !serializer.Get(out int honorPoint))
             return false;
 
         value = new(guildUid, guildName, membershipGrade, honorPoint);
