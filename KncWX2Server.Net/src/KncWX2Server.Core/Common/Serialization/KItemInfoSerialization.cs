@@ -34,7 +34,7 @@ public static class KItemInfoSerialization
             && serializer.Put(value.SealData)
             && serializer.Put(value.EnchantLevel)
             && serializer.Put(value.AttribEnchantInfo)
-            && serializer.PutVector(value.ItemSockets, static (s, socket) => s.Put(socket))
+            && serializer.PutVector(value.ItemSockets, static (KSerializer s, int socket) => s.Put(socket))
             && serializer.Put(value.Period)
             && serializer.PutWString(value.ExpirationDate)
             && serializer.Put(value.GoldTicketKeyUid)
@@ -45,20 +45,31 @@ public static class KItemInfoSerialization
     {
         value = new();
 
-        if (!serializer.Get(out value.ItemId)
-            || !serializer.Get(out value.UsageType)
-            || !serializer.Get(out value.Quantity)
-            || !serializer.Get(out value.Endurance)
-            || !serializer.Get(out value.SealData)
-            || !serializer.Get(out value.EnchantLevel)
-            || !serializer.Get(out value.AttribEnchantInfo)
+        if (!serializer.Get(out int itemId)
+            || !serializer.Get(out sbyte usageType)
+            || !serializer.Get(out int quantity)
+            || !serializer.Get(out short endurance)
+            || !serializer.Get(out byte sealData)
+            || !serializer.Get(out sbyte enchantLevel)
+            || !serializer.Get(out KItemAttributeEnchantInfo attribEnchantInfo)
             || !serializer.GetVector(value.ItemSockets, static (KSerializer s, out int socket) => s.Get(out socket))
-            || !serializer.Get(out value.Period)
-            || !serializer.GetWString(out value.ExpirationDate)
-            || !serializer.Get(out value.GoldTicketKeyUid)
-            || !serializer.Get(out value.ExpandedSocketNum))
+            || !serializer.Get(out short period)
+            || !serializer.GetWString(out string expirationDate)
+            || !serializer.Get(out long goldTicketKeyUid)
+            || !serializer.Get(out byte expandedSocketNum))
             return false;
 
+        value.ItemId = itemId;
+        value.UsageType = usageType;
+        value.Quantity = quantity;
+        value.Endurance = endurance;
+        value.SealData = sealData;
+        value.EnchantLevel = enchantLevel;
+        value.AttribEnchantInfo = attribEnchantInfo;
+        value.Period = period;
+        value.ExpirationDate = expirationDate;
+        value.GoldTicketKeyUid = goldTicketKeyUid;
+        value.ExpandedSocketNum = expandedSocketNum;
         return true;
     }
 
