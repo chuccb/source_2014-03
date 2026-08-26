@@ -1,0 +1,150 @@
+using KncWX2Server.Core.Common.Serialization;
+
+namespace KncWX2Server.Core.Common;
+
+public sealed class KPerformerInfo
+{
+    public const int MaxUidCount = 2000;
+
+    public uint PerformerId { get; set; }
+    public HashSet<long> Uids { get; } = [];
+
+    public bool FindUid(long uid) => Uids.Contains(uid);
+
+    public bool AddUid(long uid)
+    {
+        if (Uids.Count >= MaxUidCount && !Uids.Contains(uid))
+            return false;
+        return Uids.Add(uid) || Uids.Contains(uid);
+    }
+
+    public int UidListSize => Uids.Count;
+
+    public long GetFirstUid() => Uids.Count == 0 ? -1 : Uids.Min();
+
+    internal bool WriteTo(KSerializer serializer)
+    {
+        if (!serializer.Put(PerformerId) || !serializer.WriteTag(SerializeTag.Set) || !serializer.Put((uint)Uids.Count))
+            return false;
+
+        foreach (var uid in Uids)
+        {
+            if (!serializer.Put(uid))
+                return false;
+        }
+
+        return true;
+    }
+
+    internal bool ReadFrom(KSerializer serializer)
+    {
+        Uids.Clear();
+        if (!serializer.Get(out uint performerId) || !serializer.ReadAndCheckTag(SerializeTag.Set) || !serializer.Get(out uint count))
+            return false;
+        if (count > MaxUidCount)
+            return false;
+
+        for (var i = 0; i < count; i++)
+        {
+            if (!serializer.Get(out long uid) || !Uids.Add(uid))
+                return false;
+        }
+
+        PerformerId = performerId;
+        return true;
+    }
+}
+
+/// <summary>
+/// Managed representation of the legacy KEvent.
+/// Trace has exactly two slots and -1 means an empty slot.
+/// </summary>
+public sealed class KEvent
+{
+    public KPerformerInfo Destination { get; } = new();
+    public long FirstTrace { get; private set; } = -1;
+    public long LastTrace { get; private set; } = -1;
+    public ushort EventId { get; private set; }
+    public ushort FromType { get; private set; }
+    public SerBuffer Buffer { get; } = new();
+
+    public long FirstSenderUid => FirstTrace;
+    public long LastSenderUid => LastTrace == -1 ? FirstTrace : LastTrace;
+    public bool IsEmptyTrace => FirstTrace == -1;
+
+    public void SetData(uint performerId, ReadOnlySpan<long> trace, ushort eventId)
+    {
+        Destination.PerformerId = performerId;
+        EventId = eventId;
+        if (trace.Length == 0)
+        {
+            FirstTrace = -1;
+            LastTrace = -1;
+            return;
+        }
+
+        FirstTrace = trace[0];
+        LastTrace = trace.Length > 1 ? trace[1] : -1;
+    }
+
+    public void PushTrace(long uid)
+    {
+        if (FirstTrace == -1)
+            FirstTrace = uid;
+        else
+            LastTrace = uid;
+    }
+
+    public void PopTrace()
+    {
+        if (LastTrace != -1)
+            LastTrace = -1;
+        else
+            FirstTrace = -1;
+    }
+
+    public void SetFromType(ushort fromType) => FromType = fromType;
+
+    public KEvent Clone()
+    {
+        var clone = new KEvent();
+        clone.Destination.PerformerId = Destination.PerformerId;
+        foreach (var uid in Destination.Uids)
+            clone.Destination.Uids.Add(uid);
+        clone.FirstTrace = FirstTrace;
+        clone.LastTrace = LastTrace;
+        clone.EventId = EventId;
+        clone.FromType = FromType;
+        clone.Buffer.Write(Buffer.Data);
+        return clone;
+    }
+
+    internal bool WriteTo(KSerializer serializer)
+    {
+        if (!serializer.WriteTag(SerializeTag.UserClass) ||
+            !Destination.WriteTo(serializer) ||
+            !serializer.Put(FirstTrace) ||
+            !serializer.Put(LastTrace) ||
+            !serializer.Put(EventId) ||
+            !serializer.Put(Buffer))
+            return false;
+
+        return true;
+    }
+
+    internal bool ReadFrom(KSerializer serializer)
+    {
+        if (!serializer.ReadAndCheckTag(SerializeTag.UserClass) ||
+            !Destination.ReadFrom(serializer) ||
+            !serializer.Get(out long firstTrace) ||
+            !serializer.Get(out long lastTrace) ||
+            !serializer.Get(out ushort eventId) ||
+            !serializer.Get(Buffer))
+            return false;
+
+        FirstTrace = firstTrace;
+        LastTrace = lastTrace;
+        EventId = eventId;
+        return true;
+    }
+}
