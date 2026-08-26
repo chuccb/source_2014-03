@@ -9,101 +9,67 @@ public static class KUnitInfoSerialization
     {
         ArgumentNullException.ThrowIfNull(value);
 
-        return WriteIdentity(serializer, value)
-            && WriteMatchAndRank(serializer, value)
-            && WriteProgress(serializer, value)
-            && WriteStatsAndCollections(serializer, value)
-            && WriteSkillAndStatus(serializer, value)
-            && WriteEventState(serializer, value);
+        return serializer.Put(value.OwnerUserUid)
+            && serializer.Put(value.AuthLevel)
+            && serializer.Put(value.UnitUid)
+            && serializer.Put(value.KnmSerialNum)
+            && serializer.Put(value.UnitClass)
+            && serializer.PutWString(value.NickName)
+            && serializer.PutWString(value.Ip)
+            && serializer.Put(value.Port)
+            && serializer.Put(value.Ed)
+            && serializer.Put(value.Level)
+            && serializer.Put(value.Exp)
+            && serializer.Put(value.OfficialMatchCount)
+            && serializer.Put(value.Rating)
+            && serializer.Put(value.MaxRating)
+            && serializer.Put(value.RPoint)
+            && serializer.Put(value.APoint)
+            && serializer.Put(value.IsWinBeforeMatch)
+            && serializer.Put(value.Rank)
+            && serializer.Put(value.KFactor)
+            && serializer.Put(value.IsRedistributionUser)
+            && serializer.Put(value.PastSeasonWin)
+            && serializer.Put(value.SPoint)
+            && serializer.Put(value.CsPoint)
+            && serializer.Put(value.CsPointEndDate)
+            && serializer.Put(value.NowBaseLevelExp)
+            && serializer.Put(value.NextBaseLevelExp)
+            && serializer.Put(value.StraightVictories)
+            && serializer.Put(value.Stat)
+            && serializer.Put(value.GameStat)
+            && serializer.Put(value.LastPosition)
+            && serializer.PutVector(value.BuffInfo, KBuffInfoSerialization.Put)
+            && serializer.Put(value.Win)
+            && serializer.Put(value.Lose)
+            && serializer.PutMap(value.DungeonClear, PutInt, KUnitInfoNestedSerialization.Put)
+            && serializer.PutMap(value.TcClear, PutInt, KUnitInfoNestedSerialization.Put)
+            && serializer.PutMap(value.DungeonPlay, PutInt, KUnitInfoNestedSerialization.Put)
+            && serializer.PutMap(value.EquippedItems, PutInt, KInventoryItemInfoSerialization.Put)
+            && serializer.Put(value.UnitSkillData)
+            && serializer.Put(value.IsParty)
+            && serializer.Put(value.SpiritMax)
+            && serializer.Put(value.Spirit)
+            && serializer.Put(value.IsGameBang)
+            && serializer.Put(value.PcBangType)
+            && serializer.Put(value.TitleId)
+            && serializer.Put(value.UserGuildInfo)
+            && serializer.PutWString(value.LastLoginTime)
+            && serializer.Put(value.WarpVipEndTime)
+            && serializer.Put(value.EventQuestClearCount)
+            && serializer.Put(value.ExchangeCount)
+            && serializer.Put(value.OldYearMissionRewardedLevel)
+            && serializer.Put(value.NewYearMissionStepId)
+            && serializer.Put(value.CheckPowerCount)
+            && serializer.Put(value.CheckPowerTime)
+            && serializer.Put(value.CheckPowerShowPopUp)
+            && serializer.Put(value.CheckPowerScore);
     }
 
     public static bool Get(this KSerializer serializer, out KUnitInfo value)
     {
         value = new();
-        var result = new KUnitInfo();
 
-        if (!ReadIdentity(serializer, result)
-            || !ReadMatchAndRank(serializer, result)
-            || !ReadProgress(serializer, result)
-            || !ReadStatsAndCollections(serializer, result)
-            || !ReadSkillAndStatus(serializer, result)
-            || !ReadEventState(serializer, result))
-            return false;
-
-        value = result;
-        return true;
-    }
-
-    private static bool WriteIdentity(KSerializer serializer, KUnitInfo value) =>
-        serializer.Put(value.OwnerUserUid)
-        && serializer.Put(value.AuthLevel)
-        && serializer.Put(value.UnitUid)
-        && serializer.Put(value.KnmSerialNum)
-        && serializer.Put(value.UnitClass)
-        && serializer.PutWString(value.NickName)
-        && serializer.PutWString(value.Ip)
-        && serializer.Put(value.Port)
-        && serializer.Put(value.Ed)
-        && serializer.Put(value.Level)
-        && serializer.Put(value.Exp);
-
-    private static bool WriteMatchAndRank(KSerializer serializer, KUnitInfo value) =>
-        serializer.Put(value.OfficialMatchCount)
-        && serializer.Put(value.Rating)
-        && serializer.Put(value.MaxRating)
-        && serializer.Put(value.RPoint)
-        && serializer.Put(value.APoint)
-        && serializer.Put(value.IsWinBeforeMatch)
-        && serializer.Put(value.Rank)
-        && serializer.Put(value.KFactor)
-        && serializer.Put(value.IsRedistributionUser)
-        && serializer.Put(value.PastSeasonWin);
-
-    private static bool WriteProgress(KSerializer serializer, KUnitInfo value) =>
-        serializer.Put(value.SPoint)
-        && serializer.Put(value.CsPoint)
-        && serializer.Put(value.MaxCsPoint)
-        && serializer.PutWString(value.CsPointEndDate)
-        && serializer.Put(value.NowBaseLevelExp)
-        && serializer.Put(value.NextBaseLevelExp)
-        && serializer.Put(value.StraightVictories);
-
-    private static bool WriteStatsAndCollections(KSerializer serializer, KUnitInfo value) =>
-        serializer.Put(value.Stat)
-        && serializer.Put(value.GameStat)
-        && serializer.Put(value.LastPosition)
-        && serializer.PutVector(value.BuffInfo, static (KSerializer s, KBuffInfo item) => s.Put(item))
-        && serializer.Put(value.Win)
-        && serializer.Put(value.Lose)
-        && serializer.PutMap(value.DungeonClear, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KDungeonClearInfo item) => s.Put(item))
-        && serializer.PutMap(value.TcClear, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KTCClearInfo item) => s.Put(item))
-        && serializer.PutMap(value.DungeonPlay, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KDungeonPlayInfo item) => s.Put(item))
-        && serializer.PutMap(value.EquippedItems, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KInventoryItemInfo item) => s.Put(item));
-
-    private static bool WriteSkillAndStatus(KSerializer serializer, KUnitInfo value) =>
-        serializer.Put(value.UnitSkillData)
-        && serializer.Put(value.IsParty)
-        && serializer.Put(value.SpiritMax)
-        && serializer.Put(value.Spirit)
-        && serializer.Put(value.IsGameBang)
-        && serializer.Put(value.PcBangType)
-        && serializer.Put(value.TitleId)
-        && serializer.Put(value.UserGuildInfo)
-        && serializer.PutWString(value.LastLoginTime)
-        && serializer.Put(value.WarpVipEndTime)
-        && serializer.Put(value.EventQuestClearCount)
-        && serializer.Put(value.ExchangeCount);
-
-    private static bool WriteEventState(KSerializer serializer, KUnitInfo value) =>
-        serializer.Put(value.OldYearMissionRewardedLevel)
-        && serializer.Put(value.NewYearMissionStepId)
-        && serializer.Put(value.CheckPowerCount)
-        && serializer.Put(value.CheckPowerTime)
-        && serializer.Put(value.CheckPowerShowPopUp)
-        && serializer.Put(value.CheckPowerScore);
-
-    private static bool ReadIdentity(KSerializer serializer, KUnitInfo value)
-    {
         if (!serializer.Get(out long ownerUserUid)
             || !serializer.Get(out sbyte authLevel)
             || !serializer.Get(out long unitUid)
@@ -114,7 +80,52 @@ public static class KUnitInfoSerialization
             || !serializer.Get(out ushort port)
             || !serializer.Get(out int ed)
             || !serializer.Get(out byte level)
-            || !serializer.Get(out int exp))
+            || !serializer.Get(out int exp)
+            || !serializer.Get(out int officialMatchCount)
+            || !serializer.Get(out int rating)
+            || !serializer.Get(out int maxRating)
+            || !serializer.Get(out int rPoint)
+            || !serializer.Get(out int aPoint)
+            || !serializer.Get(out bool isWinBeforeMatch)
+            || !serializer.Get(out sbyte rank)
+            || !serializer.Get(out float kFactor)
+            || !serializer.Get(out bool isRedistributionUser)
+            || !serializer.Get(out int pastSeasonWin)
+            || !serializer.Get(out int sPoint)
+            || !serializer.Get(out int csPoint)
+            || !serializer.Get(out int maxCsPoint)
+            || !serializer.GetWString(out string csPointEndDate)
+            || !serializer.Get(out int nowBaseLevelExp)
+            || !serializer.Get(out int nextBaseLevelExp)
+            || !serializer.Get(out int straightVictories)
+            || !serializer.Get(out KStat stat)
+            || !serializer.Get(out KStat gameStat)
+            || !serializer.Get(out KLastPositionInfo lastPosition)
+            || !serializer.GetVector(value.BuffInfo, KBuffInfoSerialization.Get)
+            || !serializer.Get(out int win)
+            || !serializer.Get(out int lose)
+            || !serializer.GetMap<int, KDungeonClearInfo>(value.DungeonClear.Clear, value.DungeonClear.TryAdd, KUnitInfoNestedSerialization.Get)
+            || !serializer.GetMap<int, KTCClearInfo>(value.TcClear.Clear, value.TcClear.TryAdd, KUnitInfoNestedSerialization.Get)
+            || !serializer.GetMap<int, KDungeonPlayInfo>(value.DungeonPlay.Clear, value.DungeonPlay.TryAdd, KUnitInfoNestedSerialization.Get)
+            || !serializer.GetMap<int, KInventoryItemInfo>(value.EquippedItems.Clear, value.EquippedItems.TryAdd, KInventoryItemInfoSerialization.Get)
+            || !serializer.Get(out KUnitSkillData unitSkillData)
+            || !serializer.Get(out bool isParty)
+            || !serializer.Get(out int spiritMax)
+            || !serializer.Get(out int spirit)
+            || !serializer.Get(out bool isGameBang)
+            || !serializer.Get(out int pcBangType)
+            || !serializer.Get(out int titleId)
+            || !serializer.Get(out KUserGuildInfo userGuildInfo)
+            || !serializer.GetWString(out string lastLoginTime)
+            || !serializer.Get(out long warpVipEndTime)
+            || !serializer.Get(out int eventQuestClearCount)
+            || !serializer.Get(out int exchangeCount)
+            || !serializer.Get(out byte oldYearMissionRewardedLevel)
+            || !serializer.Get(out int newYearMissionStepId)
+            || !serializer.Get(out byte checkPowerCount)
+            || !serializer.Get(out long checkPowerTime)
+            || !serializer.Get(out bool checkPowerShowPopUp)
+            || !serializer.Get(out byte checkPowerScore))
             return false;
 
         value.OwnerUserUid = ownerUserUid;
@@ -128,23 +139,6 @@ public static class KUnitInfoSerialization
         value.Ed = ed;
         value.Level = level;
         value.Exp = exp;
-        return true;
-    }
-
-    private static bool ReadMatchAndRank(KSerializer serializer, KUnitInfo value)
-    {
-        if (!serializer.Get(out int officialMatchCount)
-            || !serializer.Get(out int rating)
-            || !serializer.Get(out int maxRating)
-            || !serializer.Get(out int rPoint)
-            || !serializer.Get(out int aPoint)
-            || !serializer.Get(out bool isWinBeforeMatch)
-            || !serializer.Get(out sbyte rank)
-            || !serializer.Get(out float kFactor)
-            || !serializer.Get(out bool isRedistributionUser)
-            || !serializer.Get(out int pastSeasonWin))
-            return false;
-
         value.OfficialMatchCount = officialMatchCount;
         value.Rating = rating;
         value.MaxRating = maxRating;
@@ -155,20 +149,6 @@ public static class KUnitInfoSerialization
         value.KFactor = kFactor;
         value.IsRedistributionUser = isRedistributionUser;
         value.PastSeasonWin = pastSeasonWin;
-        return true;
-    }
-
-    private static bool ReadProgress(KSerializer serializer, KUnitInfo value)
-    {
-        if (!serializer.Get(out int sPoint)
-            || !serializer.Get(out int csPoint)
-            || !serializer.Get(out int maxCsPoint)
-            || !serializer.GetWString(out string csPointEndDate)
-            || !serializer.Get(out int nowBaseLevelExp)
-            || !serializer.Get(out int nextBaseLevelExp)
-            || !serializer.Get(out int straightVictories))
-            return false;
-
         value.SPoint = sPoint;
         value.CsPoint = csPoint;
         value.MaxCsPoint = maxCsPoint;
@@ -176,52 +156,11 @@ public static class KUnitInfoSerialization
         value.NowBaseLevelExp = nowBaseLevelExp;
         value.NextBaseLevelExp = nextBaseLevelExp;
         value.StraightVictories = straightVictories;
-        return true;
-    }
-
-    private static bool ReadStatsAndCollections(KSerializer serializer, KUnitInfo value)
-    {
-        if (!serializer.Get(out KStat stat)
-            || !serializer.Get(out KStat gameStat)
-            || !serializer.Get(out KLastPositionInfo lastPosition)
-            || !serializer.GetVector(value.BuffInfo, static (KSerializer s, out KBuffInfo item) =>
-            {
-                item = default;
-                return s.Get(out item);
-            })
-            || !serializer.Get(out int win)
-            || !serializer.Get(out int lose)
-            || !GetDungeonClear(serializer, value.DungeonClear)
-            || !GetTcClear(serializer, value.TcClear)
-            || !GetDungeonPlay(serializer, value.DungeonPlay)
-            || !GetEquippedItems(serializer, value.EquippedItems))
-            return false;
-
         value.Stat = stat;
         value.GameStat = gameStat;
         value.LastPosition = lastPosition;
         value.Win = win;
         value.Lose = lose;
-        return true;
-    }
-
-    private static bool ReadSkillAndStatus(KSerializer serializer, KUnitInfo value)
-    {
-        if (!serializer.Get(out KUnitSkillData unitSkillData)
-            || !serializer.Get(out bool isParty)
-            || !serializer.Get(out int spiritMax)
-            || !serializer.Get(out int spirit)
-            || !serializer.Get(out bool isGameBang)
-            || !serializer.Get(out int pcBangType)
-            || !serializer.Get(out int titleId)
-            || !serializer.Get(out KUserGuildInfo userGuildInfo)
-            || !serializer.GetWString(out string lastLoginTime)
-            || !serializer.Get(out long warpVipEndTime)
-            || !serializer.Get(out int eventQuestClearCount)
-            || !serializer.Get(out int exchangeCount))
-            return false;
-
-        CopyUnitSkillData(value.UnitSkillData, unitSkillData);
         value.IsParty = isParty;
         value.SpiritMax = spiritMax;
         value.Spirit = spirit;
@@ -233,83 +172,17 @@ public static class KUnitInfoSerialization
         value.WarpVipEndTime = warpVipEndTime;
         value.EventQuestClearCount = eventQuestClearCount;
         value.ExchangeCount = exchangeCount;
-        return true;
-    }
-
-    private static bool ReadEventState(KSerializer serializer, KUnitInfo value)
-    {
-        if (!serializer.Get(out byte oldYearMissionRewardedLevel)
-            || !serializer.Get(out int newYearMissionStepId)
-            || !serializer.Get(out byte checkPowerCount)
-            || !serializer.Get(out long checkPowerTime)
-            || !serializer.Get(out bool checkPowerShowPopUp)
-            || !serializer.Get(out byte checkPowerScore))
-            return false;
-
         value.OldYearMissionRewardedLevel = oldYearMissionRewardedLevel;
         value.NewYearMissionStepId = newYearMissionStepId;
         value.CheckPowerCount = checkPowerCount;
         value.CheckPowerTime = checkPowerTime;
         value.CheckPowerShowPopUp = checkPowerShowPopUp;
         value.CheckPowerScore = checkPowerScore;
+        CopyUnitSkillData(value.UnitSkillData, unitSkillData);
         return true;
     }
 
-    private static bool GetDungeonClear(KSerializer serializer, Dictionary<int, KDungeonClearInfo> value) =>
-        serializer.GetMap(
-            value.Clear,
-            (int key, KDungeonClearInfo item) =>
-            {
-                value.TryAdd(key, item);
-                return true;
-            },
-            static (KSerializer s, out int key, out KDungeonClearInfo item) =>
-            {
-                item = default;
-                return s.Get(out key) && s.Get(out item);
-            });
-
-    private static bool GetTcClear(KSerializer serializer, Dictionary<int, KTCClearInfo> value) =>
-        serializer.GetMap(
-            value.Clear,
-            (int key, KTCClearInfo item) =>
-            {
-                value.TryAdd(key, item);
-                return true;
-            },
-            static (KSerializer s, out int key, out KTCClearInfo item) =>
-            {
-                item = default;
-                return s.Get(out key) && s.Get(out item);
-            });
-
-    private static bool GetDungeonPlay(KSerializer serializer, Dictionary<int, KDungeonPlayInfo> value) =>
-        serializer.GetMap(
-            value.Clear,
-            (int key, KDungeonPlayInfo item) =>
-            {
-                value.TryAdd(key, item);
-                return true;
-            },
-            static (KSerializer s, out int key, out KDungeonPlayInfo item) =>
-            {
-                item = default;
-                return s.Get(out key) && s.Get(out item);
-            });
-
-    private static bool GetEquippedItems(KSerializer serializer, Dictionary<int, KInventoryItemInfo> value) =>
-        serializer.GetMap(
-            value.Clear,
-            (int key, KInventoryItemInfo item) =>
-            {
-                value.TryAdd(key, item);
-                return true;
-            },
-            static (KSerializer s, out int key, out KInventoryItemInfo item) =>
-            {
-                item = default;
-                return s.Get(out key) && s.Get(out item);
-            });
+    private static bool PutInt(KSerializer serializer, int value) => serializer.Put(value);
 
     private static void CopyUnitSkillData(KUnitSkillData destination, KUnitSkillData source)
     {
