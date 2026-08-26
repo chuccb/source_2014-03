@@ -5,7 +5,7 @@ namespace KncWX2Server.Core.Common.Serialization;
 /// <summary>Wire serialization for the legacy skill-state models.</summary>
 public static class KSkillDataSerialization
 {
-    public static bool Put(this KSerializer serializer, in KSkillData value) =>
+    public static bool Put(this KSerializer serializer, KSkillData value) =>
         serializer.Put(value.SkillId)
         && serializer.Put(value.SkillLevel);
 
@@ -38,8 +38,8 @@ public static class KUnitSkillDataSerialization
 
         return serializer.PutWString(value.SkillSlotBEndDate)
             && serializer.Put(value.SkillSlotBExpirationState)
-            && serializer.PutVector(value.PassiveSkills, static (KSerializer s, KSkillData skill) => s.Put(skill))
-            && serializer.PutVector(value.GuildPassiveSkills, static (KSerializer s, KSkillData skill) => s.Put(skill))
+            && serializer.PutVector(value.PassiveSkills, KSkillDataSerialization.Put)
+            && serializer.PutVector(value.GuildPassiveSkills, KSkillDataSerialization.Put)
             && serializer.PutVector(value.SkillNotes, static (KSerializer s, int note) => s.Put(note))
             && serializer.Put(value.ActiveSkillPagesNumber)
             && serializer.Put(value.AvailableSkillPagesNumber);
@@ -67,8 +67,8 @@ public static class KUnitSkillDataSerialization
 
         if (!serializer.GetWString(out var skillSlotBEndDate)
             || !serializer.Get(out sbyte skillSlotBExpirationState)
-            || !serializer.GetVector(value.PassiveSkills, static (KSerializer s, out KSkillData skill) => s.Get(out skill))
-            || !serializer.GetVector(value.GuildPassiveSkills, static (KSerializer s, out KSkillData skill) => s.Get(out skill))
+            || !serializer.GetVector(value.PassiveSkills, KSkillDataSerialization.Get)
+            || !serializer.GetVector(value.GuildPassiveSkills, KSkillDataSerialization.Get)
             || !serializer.GetVector(value.SkillNotes, static (KSerializer s, out int note) => s.Get(out note))
             || !serializer.Get(out byte activeSkillPagesNumber)
             || !serializer.Get(out byte availableSkillPagesNumber))
