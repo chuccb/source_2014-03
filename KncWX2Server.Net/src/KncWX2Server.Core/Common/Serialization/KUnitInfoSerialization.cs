@@ -32,7 +32,8 @@ public static class KUnitInfoSerialization
             && serializer.Put(value.PastSeasonWin)
             && serializer.Put(value.SPoint)
             && serializer.Put(value.CsPoint)
-            && serializer.Put(value.CsPointEndDate)
+            && serializer.Put(value.MaxCsPoint)
+            && serializer.PutWString(value.CsPointEndDate)
             && serializer.Put(value.NowBaseLevelExp)
             && serializer.Put(value.NextBaseLevelExp)
             && serializer.Put(value.StraightVictories)
@@ -163,7 +164,7 @@ public static class KUnitInfoSerialization
         value.Lose = lose;
         value.IsParty = isParty;
         value.SpiritMax = spiritMax;
-        value.Spirit = spirit;
+        value.Spirit = spiritMax;
         value.IsGameBang = isGameBang;
         value.PcBangType = pcBangType;
         value.TitleId = titleId;
