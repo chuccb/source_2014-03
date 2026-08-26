@@ -12,8 +12,6 @@ public sealed class LegacyPacketCodec
 {
     public const int MaxPacketSize = 32768;
     public const int LengthFieldSize = sizeof(ushort);
-    public const ushort HeartbeatEventId = 0;
-    public const ushort AcceptConnectionEventId = 1;
 
     private readonly SecurityAssociationDatabase _securityDatabase;
     private byte[] _receiveBuffer = [];
@@ -37,8 +35,7 @@ public sealed class LegacyPacketCodec
 
         var serialized = new SerBuffer();
         var serializer = new KSerializer();
-        serializer.BeginWriting(serialized);
-        if (!serializer.Put(value) || !serializer.EndWriting())
+        if (!serializer.BeginWriting(serialized) || !serializer.Put(value) || !serializer.EndWriting())
             throw new InvalidDataException("Failed to serialize KEvent.");
 
         var secure = new SecureBuffer(_securitySpi, _securityDatabase);
@@ -65,7 +62,7 @@ public sealed class LegacyPacketCodec
         data.CopyTo(_receiveBuffer.AsSpan(oldLength));
     }
 
-    public bool TryDecode(out KEvent? value)
+    public bool TryDecode(bool checkSequenceNumber, out KEvent? value)
     {
         value = null;
         if (_receiveBuffer.Length < LengthFieldSize)
@@ -80,7 +77,7 @@ public sealed class LegacyPacketCodec
 
         var secureData = _receiveBuffer.AsSpan(LengthFieldSize, frameLength - LengthFieldSize);
         var secure = new SecureBuffer(_securitySpi, secureData, _securityDatabase);
-        if (!secure.IsAuthenticNoReplayWindow(checkSequenceNumber: true))
+        if (!secure.IsAuthenticNoReplayWindow(checkSequenceNumber))
         {
             _authFailureCount++;
             ConsumeFrame(frameLength);
@@ -98,19 +95,21 @@ public sealed class LegacyPacketCodec
         var packetBuffer = new SerBuffer();
         packetBuffer.Write(payload.Span);
         var serializer = new KSerializer();
-        serializer.BeginReading(packetBuffer);
+        if (!serializer.BeginReading(packetBuffer))
+            throw new InvalidDataException("Unable to begin legacy packet deserialization.");
+
         var packet = new KEvent();
         var ok = serializer.Get(packet) && serializer.EndReading();
-        if (!ok)
-        {
-            ConsumeFrame(frameLength);
-            throw new InvalidDataException("Legacy packet payload is not a valid KEvent.");
-        }
-
         ConsumeFrame(frameLength);
+
+        if (!ok)
+            throw new InvalidDataException("Legacy packet payload is not a valid KEvent.");
+
         value = packet;
         return true;
     }
+
+    public bool TryDecode(out KEvent? value) => TryDecode(checkSequenceNumber: true, out value);
 
     private void ConsumeFrame(int frameLength)
     {
