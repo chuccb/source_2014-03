@@ -460,6 +460,78 @@ public sealed class KSerializer
         return true;
     }
 
+    public bool PutMap<TKey, TValue>(
+        IReadOnlyCollection<KeyValuePair<TKey, TValue>> entries,
+        Func<KSerializer, TKey, bool> putKey,
+        Func<KSerializer, TValue, bool> putValue)
+    {
+        return PutMapLike(SerializeTag.Map, entries, putKey, putValue);
+    }
+
+    public bool PutMultimap<TKey, TValue>(
+        IReadOnlyCollection<KeyValuePair<TKey, TValue>> entries,
+        Func<KSerializer, TKey, bool> putKey,
+        Func<KSerializer, TValue, bool> putValue)
+    {
+        return PutMapLike(SerializeTag.Multimap, entries, putKey, putValue);
+    }
+
+    public delegate bool KeyValueReader<TKey, TValue>(
+        KSerializer serializer,
+        out TKey key,
+        out TValue value);
+
+    public bool GetMap<TKey, TValue>(
+        ICollection<KeyValuePair<TKey, TValue>> entries,
+        KeyValueReader<TKey, TValue> readEntry)
+    {
+        return GetMapLike(SerializeTag.Map, entries, readEntry);
+    }
+
+    public bool GetMultimap<TKey, TValue>(
+        ICollection<KeyValuePair<TKey, TValue>> entries,
+        KeyValueReader<TKey, TValue> readEntry)
+    {
+        return GetMapLike(SerializeTag.Multimap, entries, readEntry);
+    }
+
+    private bool PutMapLike<TKey, TValue>(
+        SerializeTag tag,
+        IReadOnlyCollection<KeyValuePair<TKey, TValue>> entries,
+        Func<KSerializer, TKey, bool> putKey,
+        Func<KSerializer, TValue, bool> putValue)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(putKey);
+        ArgumentNullException.ThrowIfNull(putValue);
+
+        return PutSequence(tag, entries,
+            static (serializer, entry, state) => serializer.PutPair(entry.Key, entry.Value, state.Key, state.Value),
+            (Key: putKey, Value: putValue));
+    }
+
+    private bool GetMapLike<TKey, TValue>(
+        SerializeTag tag,
+        ICollection<KeyValuePair<TKey, TValue>> entries,
+        KeyValueReader<TKey, TValue> readEntry)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(readEntry);
+
+        entries.Clear();
+        if (!ReadAndCheckTag(tag) || !Get(out uint count))
+            return false;
+
+        for (uint i = 0; i < count; i++)
+        {
+            if (!readEntry(this, out var key, out var value))
+                return false;
+            entries.Add(new KeyValuePair<TKey, TValue>(key, value));
+        }
+
+        return true;
+    }
+
     public bool Put(ByteStream value)
     {
         ArgumentNullException.ThrowIfNull(value);
