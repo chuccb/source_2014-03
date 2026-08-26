@@ -22,24 +22,22 @@ public sealed class GupCreateUnitService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(connection);
-        ArgumentException.ThrowIfNullOrWhiteSpace(nickname);
 
-        var now = DateTime.Now;
-        var nowText = FormatDate(now);
+        var sdtNow = NormalizeSqlSmallDateTime(DateTime.Now);
+        var nowText = FormatDate(sdtNow);
 
+        // SQL Server leaves this variable NULL when the configuration table is empty.
+        // The procedure only turns that into -21 when the GSpirit INSERT fails.
         var startSpirit = await ScalarNullableInt64Async(
             connection,
             "SELECT StartSpirit FROM GResurrectionStoneCnt LIMIT 1;",
             cancellationToken).ConfigureAwait(false);
 
-        if (startSpirit is null)
-            return new(-21, 0, null);
-
         var user = await LoadUserAsync(connection, userUid, cancellationToken).ConfigureAwait(false);
-        if (user is { Deleted: true })
-            return new(-1, 0, null);
+        if (user.Deleted)
+            return new(-1, 0, LegacySqlDateFallback);
 
-        if (user is { UnitSlotSize: { } unitSlotSize })
+        if (user.UnitSlotSize is { } unitSlotSize)
         {
             var activeUnitCount = await ScalarInt64Async(
                 connection,
@@ -48,7 +46,7 @@ public sealed class GupCreateUnitService
                 ("$userUid", userUid)).ConfigureAwait(false);
 
             if (activeUnitCount >= unitSlotSize)
-                return new(-3, 0, null);
+                return new(-3, 0, LegacySqlDateFallback);
         }
 
         var nicknameAlreadyExists = await ScalarInt64Async(
@@ -58,7 +56,7 @@ public sealed class GupCreateUnitService
             ("$nickname", nickname)).ConfigureAwait(false);
 
         if (nicknameAlreadyExists != 0)
-            return new(-2, 0, null);
+            return new(-2, 0, LegacySqlDateFallback);
 
         var legacyNicknameDate = await FindLatestDeletedNicknameDateAsync(
             connection,
@@ -66,7 +64,7 @@ public sealed class GupCreateUnitService
             cancellationToken).ConfigureAwait(false);
 
         if (legacyNicknameDate is { } deletedNicknameDate &&
-            deletedNicknameDate > now.AddDays(-14))
+            deletedNicknameDate > sdtNow.AddDays(-14))
         {
             return new(-222, 0, deletedNicknameDate.AddDays(14));
         }
@@ -85,7 +83,10 @@ public sealed class GupCreateUnitService
                 cancellationToken).ConfigureAwait(false);
 
             if (unitUid <= 0)
-                return await RollbackAsync(transaction, new(-12, 0, legacyNicknameDate), cancellationToken).ConfigureAwait(false);
+                return await RollbackAsync(transaction, new(-12, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
+
+            if (nickname.Length > 16)
+                return await RollbackAsync(transaction, new(-13, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
 
             if (!await InsertUnitNicknameAsync(
                     connection,
@@ -94,7 +95,7 @@ public sealed class GupCreateUnitService
                     nickname,
                     nowText,
                     cancellationToken).ConfigureAwait(false))
-                return await RollbackAsync(transaction, new(-13, 0, legacyNicknameDate), cancellationToken).ConfigureAwait(false);
+                return await RollbackAsync(transaction, new(-13, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
 
             for (var questionNo = 1; questionNo <= 4; questionNo++)
             {
@@ -104,16 +105,16 @@ public sealed class GupCreateUnitService
                         unitUid,
                         questionNo,
                         cancellationToken).ConfigureAwait(false))
-                    return await RollbackAsync(transaction, new(-14, 0, legacyNicknameDate), cancellationToken).ConfigureAwait(false);
+                    return await RollbackAsync(transaction, new(-14, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
             }
 
-            if (!await InsertInitialQuestAsync(
-                    connection,
-                    transaction,
-                    unitUid,
-                    nowText,
-                    cancellationToken).ConfigureAwait(false))
-                return await RollbackAsync(transaction, new(-14, 0, legacyNicknameDate), cancellationToken).ConfigureAwait(false);
+            // The legacy procedure does not inspect @@ERROR/@@ROWCOUNT for this INSERT.
+            await InsertInitialQuestAsync(
+                connection,
+                transaction,
+                unitUid,
+                nowText,
+                cancellationToken).ConfigureAwait(false);
 
             var skillSetup = GetInitialSkill(unitClass);
             if (skillSetup is { } initialSkill)
@@ -125,7 +126,7 @@ public sealed class GupCreateUnitService
                         initialSkill.SkillId,
                         nowText,
                         cancellationToken).ConfigureAwait(false))
-                    return await RollbackAsync(transaction, new(initialSkill.SkillErrorCode, 0, legacyNicknameDate), cancellationToken).ConfigureAwait(false);
+                    return await RollbackAsync(transaction, new(initialSkill.SkillErrorCode, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
 
                 if (!await InsertSkillSlotAsync(
                         connection,
@@ -133,17 +134,17 @@ public sealed class GupCreateUnitService
                         unitUid,
                         initialSkill.SkillId,
                         cancellationToken).ConfigureAwait(false))
-                    return await RollbackAsync(transaction, new(initialSkill.SkillSlotErrorCode, 0, legacyNicknameDate), cancellationToken).ConfigureAwait(false);
+                    return await RollbackAsync(transaction, new(initialSkill.SkillSlotErrorCode, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
             }
 
             if (!await InsertSpiritAsync(
                     connection,
                     transaction,
                     unitUid,
-                    checked((short)startSpirit.Value),
+                    startSpirit,
                     nowText,
                     cancellationToken).ConfigureAwait(false))
-                return await RollbackAsync(transaction, new(-21, 0, legacyNicknameDate), cancellationToken).ConfigureAwait(false);
+                return await RollbackAsync(transaction, new(-21, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return new(0, unitUid, legacyNicknameDate ?? LegacySqlDateFallback);
@@ -151,7 +152,7 @@ public sealed class GupCreateUnitService
         catch (SqliteException)
         {
             await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-            return new(-12, 0, legacyNicknameDate);
+            return new(-12, 0, legacyNicknameDate ?? LegacySqlDateFallback);
         }
     }
 
@@ -178,24 +179,21 @@ public sealed class GupCreateUnitService
         command.CommandText = """
             INSERT INTO GUnit
             (
-                UserUID, UnitClass, Exp, Level, GamePoint, VSPoint, VSPointMax,
-                BaseHP, AtkPhysic, AtkMagic, DefPhysic, DefMagic, SPoint,
-                Win, Lose, Seceder, RegDate, DelDate, LastDate,
-                LastPosition, PlayDayCnt, LoginCount
+                UserUID, UnitClass, Exp, Level, GamePoint, VSPoint, VSPointMax, BaseHP,
+                AtkPhysic, AtkMagic, DefPhysic, DefMagic, SPoint, Win, Lose, Seceder,
+                RegDate, DelDate, LastPosition
             )
             VALUES
             (
-                $userUid, $unitClass, 0, 1, 0, 0, 0,
-                0, 0, 0, 0, 0, 1,
-                0, 0, 0, $nowText, $nowText, $legacyZeroDate,
-                20_000, 0, 1
+                $userUid, $unitClass, 0, 1, 0, 0, 0, 0,
+                0, 0, 0, 0, 1, 0, 0, 0,
+                $nowText, $nowText, 20_000
             )
             RETURNING UnitUID;
             """;
         command.Parameters.AddWithValue("$userUid", userUid);
         command.Parameters.AddWithValue("$unitClass", unitClass);
         command.Parameters.AddWithValue("$nowText", nowText);
-        command.Parameters.AddWithValue("$legacyZeroDate", "1900-01-01 00:00:00");
 
         var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return value is long generatedUnitUid
@@ -237,20 +235,20 @@ public sealed class GupCreateUnitService
             ("$questionNo", questionNo)).ConfigureAwait(false) == 1;
     }
 
-    private static async ValueTask<bool> InsertInitialQuestAsync(
+    private static async ValueTask InsertInitialQuestAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
         long unitUid,
         string nowText,
         CancellationToken cancellationToken)
     {
-        return await ExecuteNonQueryAsync(
+        _ = await ExecuteNonQueryAsync(
             connection,
             transaction,
             "INSERT INTO GQuests (UnitUID, QuestID, SubQuest0, SubQuest1, SubQuest2, SubQuest3, SubQuest4, RegDate) VALUES ($unitUid, 13, 1, 0, 0, 0, 0, $nowText);",
             cancellationToken,
             ("$unitUid", unitUid),
-            ("$nowText", nowText)).ConfigureAwait(false) == 1;
+            ("$nowText", nowText)).ConfigureAwait(false);
     }
 
     private static async ValueTask<bool> InsertSkillAsync(
@@ -291,21 +289,28 @@ public sealed class GupCreateUnitService
         SqliteConnection connection,
         SqliteTransaction transaction,
         long unitUid,
-        short spirit,
+        long? spirit,
         string nowText,
         CancellationToken cancellationToken)
     {
-        return await ExecuteNonQueryAsync(
-            connection,
-            transaction,
-            "INSERT INTO GSpirit (unitUID, Spirit, RegDate, Flag) VALUES ($unitUid, $spirit, $nowText, 0);",
-            cancellationToken,
-            ("$unitUid", unitUid),
-            ("$spirit", spirit),
-            ("$nowText", nowText)).ConfigureAwait(false) == 1;
+        try
+        {
+            return await ExecuteNonQueryAsync(
+                connection,
+                transaction,
+                "INSERT INTO GSpirit (unitUID, Spirit, RegDate) VALUES ($unitUid, $spirit, $nowText);",
+                cancellationToken,
+                ("$unitUid", unitUid),
+                ("$spirit", spirit is null ? DBNull.Value : spirit),
+                ("$nowText", nowText)).ConfigureAwait(false) == 1;
+        }
+        catch (SqliteException)
+        {
+            return false;
+        }
     }
 
-    private static async ValueTask<(bool Deleted, long? UnitSlotSize)?> LoadUserAsync(
+    private static async ValueTask<(bool Deleted, long? UnitSlotSize)> LoadUserAsync(
         SqliteConnection connection,
         long userUid,
         CancellationToken cancellationToken)
@@ -316,10 +321,10 @@ public sealed class GupCreateUnitService
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            return new(false, null);
+            return (false, null);
 
         var deleted = reader.GetInt64(0) != 0;
-        var slotSize = reader.GetInt64(1);
+        var slotSize = reader.IsDBNull(1) ? null : reader.GetInt64(1);
         return (deleted, slotSize);
     }
 
@@ -398,6 +403,12 @@ public sealed class GupCreateUnitService
     {
         await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
         return result;
+    }
+
+    private static DateTime NormalizeSqlSmallDateTime(DateTime value)
+    {
+        var truncated = new DateTime(value.Year, value.Month, value.Day, value.Hour, value.Minute, 0, DateTimeKind.Unspecified);
+        return value.Second >= 30 ? truncated.AddMinutes(1) : truncated;
     }
 
     private static string FormatDate(DateTime value) =>
