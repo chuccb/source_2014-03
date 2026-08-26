@@ -114,6 +114,9 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
 
 public static class KncServerBootstrap
 {
+    public static IReadOnlyList<ServerRole> Roles { get; } =
+        [with(capacity: 4), ServerRole.Login, ServerRole.Center, ServerRole.Channel, ServerRole.Game];
+
     public static async Task RunAsync(string[] args, ServerRole role, int defaultPort)
     {
         var options = ServerOptions.Parse(args, role, defaultPort);
