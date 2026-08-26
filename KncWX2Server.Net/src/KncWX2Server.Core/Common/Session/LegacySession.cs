@@ -4,6 +4,8 @@ using KncWX2Server.Core.Common.Security;
 using KncWX2Server.Core.Common.Serialization;
 using KncWX2Server.Core.Common.Socket;
 
+using NetSocket = System.Net.Sockets.Socket;
+
 namespace KncWX2Server.Core.Common.Session;
 
 /// <summary>
@@ -97,7 +99,7 @@ public abstract class LegacySession : KPerformer, IAsyncDisposable
         if (addresses.Length == 0)
             throw new SocketException((int)SocketError.HostNotFound);
 
-        var socket = new Socket(addresses[0].AddressFamily, SocketType.Stream, ProtocolType.Tcp)
+        var socket = new NetSocket(addresses[0].AddressFamily, SocketType.Stream, ProtocolType.Tcp)
         {
             NoDelay = true,
         };
