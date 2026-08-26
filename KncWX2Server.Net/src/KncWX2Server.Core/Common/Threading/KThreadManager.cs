@@ -46,8 +46,18 @@ public abstract class KThreadManager : KPerformer, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// KThreadManager itself does not handle events; its worker subclasses do.
+    /// This matches the legacy empty KThreadManager::ProcessEvent implementation.
+    /// </summary>
+    protected override void ProcessEvent(KEvent eventObject)
+    {
+    }
+
     public async ValueTask EndThreadAsync(TimeSpan timeout)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
+
         Interlocked.Exchange(ref _terminateReserved, 1);
 
         KThread[] threads;
