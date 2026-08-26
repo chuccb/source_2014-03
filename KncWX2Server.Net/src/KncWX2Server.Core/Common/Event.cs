@@ -30,7 +30,6 @@ public sealed class KPerformerInfo
 
     internal bool ReadFields(KSerializer serializer)
     {
-        Uids.Clear();
         if (!serializer.Get(out uint performerId))
             return false;
         if (!serializer.Get(Uids, static (ser, out long uid) => ser.Get(out uid)))
