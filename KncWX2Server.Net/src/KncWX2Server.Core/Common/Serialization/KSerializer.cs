@@ -505,9 +505,19 @@ public sealed class KSerializer
         ArgumentNullException.ThrowIfNull(putKey);
         ArgumentNullException.ThrowIfNull(putValue);
 
-        return PutSequence(tag, entries,
-            static (serializer, entry, state) => serializer.PutPair(entry.Key, entry.Value, state.Key, state.Value),
-            (Key: putKey, Value: putValue));
+        var expectedCount = checked((uint)entries.Count);
+        if (!WriteTag(tag) || !Put(expectedCount))
+            return false;
+
+        uint count = 0;
+        foreach (var entry in entries)
+        {
+            if (!PutPair(entry.Key, entry.Value, putKey, putValue))
+                return false;
+            count++;
+        }
+
+        return count == expectedCount;
     }
 
     private bool GetMapLike<TKey, TValue>(
