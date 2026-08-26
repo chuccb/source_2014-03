@@ -25,14 +25,14 @@ public sealed class KPerformerInfo
     internal bool WriteFields(KSerializer serializer)
     {
         return serializer.Put(PerformerId)
-            && serializer.Put(Uids, static (ser, uid) => ser.Put(uid));
+            && serializer.Put(Uids, static (KSerializer ser, long uid) => ser.Put(uid));
     }
 
     internal bool ReadFields(KSerializer serializer)
     {
         if (!serializer.Get(out uint performerId))
             return false;
-        if (!serializer.Get(Uids, static (ser, out long uid) => ser.Get(out uid)))
+        if (!serializer.Get(Uids, static (KSerializer ser, out long uid) => ser.Get(out uid)))
             return false;
 
         PerformerId = performerId;
