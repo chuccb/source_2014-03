@@ -1,7 +1,7 @@
-namespace KncWX2Server.Core.Common.Database;
-
 using KncWX2Server.Core.Common;
 using KncWX2Server.Core.Common.Threading;
+
+namespace KncWX2Server.Core.Common.Database;
 
 /// <summary>
 /// Logical database-agent contract corresponding to the legacy KDBThreadManager.
