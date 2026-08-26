@@ -43,10 +43,10 @@ public static class KUnitInfoSerialization
             && serializer.PutVector(value.BuffInfo, KBuffInfoSerialization.Put)
             && serializer.Put(value.Win)
             && serializer.Put(value.Lose)
-            && serializer.PutMap(value.DungeonClear, PutInt, KUnitInfoNestedSerialization.Put)
-            && serializer.PutMap(value.TcClear, PutInt, KUnitInfoNestedSerialization.Put)
-            && serializer.PutMap(value.DungeonPlay, PutInt, KUnitInfoNestedSerialization.Put)
-            && serializer.PutMap(value.EquippedItems, PutInt, KItemInfoSerialization.Put)
+            && serializer.PutMap(value.DungeonClear, KUnitInfoNestedSerialization.Put)
+            && serializer.PutMap(value.TcClear, KUnitInfoNestedSerialization.Put)
+            && serializer.PutMap(value.DungeonPlay, KUnitInfoNestedSerialization.Put)
+            && serializer.PutMap(value.EquippedItems, KItemInfoSerialization.Put)
             && serializer.Put(value.UnitSkillData)
             && serializer.Put(value.IsParty)
             && serializer.Put(value.SpiritMax)
@@ -105,10 +105,10 @@ public static class KUnitInfoSerialization
             || !serializer.GetVector(value.BuffInfo, KBuffInfoSerialization.Get)
             || !serializer.Get(out int win)
             || !serializer.Get(out int lose)
-            || !serializer.GetMap<int, KDungeonClearInfo>(value.DungeonClear.Clear, value.DungeonClear.TryAdd, KUnitInfoNestedSerialization.Get)
-            || !serializer.GetMap<int, KTCClearInfo>(value.TcClear.Clear, value.TcClear.TryAdd, KUnitInfoNestedSerialization.Get)
-            || !serializer.GetMap<int, KDungeonPlayInfo>(value.DungeonPlay.Clear, value.DungeonPlay.TryAdd, KUnitInfoNestedSerialization.Get)
-            || !serializer.GetMap<int, KInventoryItemInfo>(value.EquippedItems.Clear, value.EquippedItems.TryAdd, KItemInfoSerialization.Get)
+            || !serializer.GetMap(value.DungeonClear, KUnitInfoNestedSerialization.Get)
+            || !serializer.GetMap(value.TcClear, KUnitInfoNestedSerialization.Get)
+            || !serializer.GetMap(value.DungeonPlay, KUnitInfoNestedSerialization.Get)
+            || !serializer.GetMap(value.EquippedItems, KItemInfoSerialization.Get)
             || !serializer.Get(out KUnitSkillData unitSkillData)
             || !serializer.Get(out bool isParty)
             || !serializer.Get(out int spiritMax)
@@ -182,8 +182,6 @@ public static class KUnitInfoSerialization
         CopyUnitSkillData(value.UnitSkillData, unitSkillData);
         return true;
     }
-
-    private static bool PutInt(KSerializer serializer, int value) => serializer.Put(value);
 
     private static void CopyUnitSkillData(KUnitSkillData destination, KUnitSkillData source)
     {
