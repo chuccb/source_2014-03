@@ -311,6 +311,47 @@ public sealed class KSerializer
         return true;
     }
 
+    public bool Put<T>(IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(putElement);
+
+        var expectedCount = checked((uint)value.Count);
+        if (!WriteTag(SerializeTag.Set) || !Put(expectedCount))
+            return false;
+
+        uint count = 0;
+        foreach (var element in value)
+        {
+            if (!putElement(this, element))
+                return false;
+            count++;
+        }
+
+        return count == expectedCount;
+    }
+
+    public delegate bool ElementReader<T>(KSerializer serializer, out T value);
+
+    public bool Get<T>(ISet<T> value, ElementReader<T> readElement)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(readElement);
+
+        value.Clear();
+        if (!ReadAndCheckTag(SerializeTag.Set) || !Get(out uint count))
+            return false;
+
+        for (uint i = 0; i < count; i++)
+        {
+            if (!readElement(this, out var element))
+                return false;
+            value.Add(element);
+        }
+
+        return true;
+    }
+
     public bool Put(ByteStream value)
     {
         ArgumentNullException.ThrowIfNull(value);
