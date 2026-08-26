@@ -481,18 +481,20 @@ public sealed class KSerializer
         out TKey key,
         out TValue value);
 
+    public delegate bool KeyValueInserter<TKey, TValue>(TKey key, TValue value);
+
     public bool GetMap<TKey, TValue>(
-        ICollection<KeyValuePair<TKey, TValue>> entries,
+        KeyValueInserter<TKey, TValue> insertEntry,
         KeyValueReader<TKey, TValue> readEntry)
     {
-        return GetMapLike(SerializeTag.Map, entries, readEntry);
+        return GetMapLike(SerializeTag.Map, insertEntry, readEntry);
     }
 
     public bool GetMultimap<TKey, TValue>(
-        ICollection<KeyValuePair<TKey, TValue>> entries,
+        KeyValueInserter<TKey, TValue> insertEntry,
         KeyValueReader<TKey, TValue> readEntry)
     {
-        return GetMapLike(SerializeTag.Multimap, entries, readEntry);
+        return GetMapLike(SerializeTag.Multimap, insertEntry, readEntry);
     }
 
     private bool PutMapLike<TKey, TValue>(
@@ -522,21 +524,19 @@ public sealed class KSerializer
 
     private bool GetMapLike<TKey, TValue>(
         SerializeTag tag,
-        ICollection<KeyValuePair<TKey, TValue>> entries,
+        KeyValueInserter<TKey, TValue> insertEntry,
         KeyValueReader<TKey, TValue> readEntry)
     {
-        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(insertEntry);
         ArgumentNullException.ThrowIfNull(readEntry);
 
-        entries.Clear();
         if (!ReadAndCheckTag(tag) || !Get(out uint count))
             return false;
 
         for (uint i = 0; i < count; i++)
         {
-            if (!readEntry(this, out var key, out var value))
+            if (!readEntry(this, out var key, out var value) || !insertEntry(key, value))
                 return false;
-            entries.Add(new KeyValuePair<TKey, TValue>(key, value));
         }
 
         return true;
