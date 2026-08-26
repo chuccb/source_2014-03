@@ -42,6 +42,20 @@ public sealed class KSerializer
 
     public int ReadLength => _buffer?.ReadLength ?? 0;
 
+    // Legacy C++ char is a distinct 1-byte type (eTAG_CHAR).
+    // C# char is used below for legacy wchar_t and therefore maps to eTAG_WCHAR.
+    public bool Put(sbyte value) => WriteTagged(SerializeTag.Char, [unchecked((byte)value)]);
+
+    public bool Get(out sbyte value)
+    {
+        value = default;
+        Span<byte> one = stackalloc byte[1];
+        if (!ReadTagged(SerializeTag.Char, one))
+            return false;
+        value = unchecked((sbyte)one[0]);
+        return true;
+    }
+
     public bool Put(char value)
     {
         Span<byte> bytes = stackalloc byte[2];
