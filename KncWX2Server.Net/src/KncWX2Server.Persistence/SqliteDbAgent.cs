@@ -21,14 +21,17 @@ public sealed class SqliteDbAgent(
 
     public int RegisteredHandlerCount => _handlers.Count;
 
+    /// <summary>Called instead of throwing when no legacy EventId handler exists.</summary>
+    public Action<DbConnectionId, ushort>? UnknownEvent { get; set; }
+
     protected override async ValueTask ProcessDbEventAsync(
         KEvent eventObject,
         CancellationToken cancellationToken)
     {
         if (!_handlers.TryGet(eventObject.EventId, out var handler) || handler is null)
         {
-            throw new InvalidOperationException(
-                $"No SQLite DB handler is registered for connection {ConnectionId} and EventId {eventObject.EventId}.");
+            UnknownEvent?.Invoke(ConnectionId, eventObject.EventId);
+            return;
         }
 
         var connection = _workerConnection.Value;
