@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using KncWX2Server.Core.Common;
 using KncWX2Server.Core.Common.Database;
+using KncWX2Server.Core.Common.Routing;
 
 namespace KncWX2Server.Persistence;
 
@@ -25,6 +26,26 @@ public sealed class SqliteDbAgent(
 
     /// <summary>Called instead of throwing when no legacy EventId handler exists.</summary>
     public Action<DbConnectionId, ushort>? UnknownEvent { get; set; }
+
+    protected override int GetPfId() => ConnectionId switch
+    {
+        DbConnectionId.Account => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerAccountDb)),
+        DbConnectionId.Game => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerGameDb)),
+        DbConnectionId.Log => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerLogDb)),
+        DbConnectionId.NxWeb => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerNxWebDb)),
+        DbConnectionId.Sms => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerSmsDb)),
+        DbConnectionId.Game2nd => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerGameDb2nd)),
+        DbConnectionId.Log2nd => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerLogDb2nd)),
+        DbConnectionId.KogBilling => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerKogBillingDb)),
+        DbConnectionId.PublisherBilling => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerPublisherBillingDb)),
+        DbConnectionId.ChatLog => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerChatLogDb)),
+        DbConnectionId.IdPcbangAuth => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerIdPublisherPcbangAuthDb)),
+        DbConnectionId.JpRelayDb => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerJpRelayDb)),
+        DbConnectionId.Event => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerEventDb)),
+        DbConnectionId.PublisherAuth => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerPublisherAuthDb)),
+        DbConnectionId.Script => checked((int)(PerformerRouting.ServerClassGame | PerformerRouting.PerformerScriptDb)),
+        _ => 0,
+    };
 
     protected override async ValueTask ProcessDbEventAsync(
         KEvent eventObject,
