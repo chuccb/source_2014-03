@@ -60,7 +60,7 @@ public abstract class LegacySession : KPerformer, IAsyncDisposable
 
     public void SetHeartbeatCheckEnabled(bool enabled) => _checkHeartbeat = enabled;
 
-    public async Task AttachAsync(
+    public Task AttachAsync(
         TcpSocketConnection connection,
         bool acceptedConnection,
         CancellationToken cancellationToken = default)
@@ -82,6 +82,8 @@ public abstract class LegacySession : KPerformer, IAsyncDisposable
 
         if (acceptedConnection && !IsProxy)
             SendAcceptConnectionHandshake();
+
+        return Task.CompletedTask;
     }
 
     /// <summary>Proxy-side connect path. It waits for the legacy E_ACCEPT_CONNECTION_NOT handshake.</summary>
@@ -125,11 +127,7 @@ public abstract class LegacySession : KPerformer, IAsyncDisposable
             return false;
 
         var frame = codec.Encode(value);
-        if (!connection.QueueSend(frame))
-            return false;
-
-        Interlocked.Exchange(ref _heartbeatTick, Environment.TickCount64);
-        return true;
+        return connection.QueueSend(frame);
     }
 
     public bool SendId(uint destinationPerformerId, long uid, ReadOnlySpan<long> trace, ushort eventId)
@@ -226,7 +224,7 @@ public abstract class LegacySession : KPerformer, IAsyncDisposable
 
         SecuritySpi = serverSpi;
         _codec?.SetSecuritySpi(serverSpi);
-        Interlocked.Exchange(ref _authKeyReceived, 1);
+        Volatile.Write(ref _authKeyReceived, 1);
     }
 
     private async ValueTask OnTransportReceivedAsync(ReadOnlyMemory<byte> data)
@@ -299,8 +297,7 @@ public abstract class LegacySession : KPerformer, IAsyncDisposable
             throw new InvalidDataException("Accept-connection packet is missing its security association.");
 
         // The legacy client intentionally chooses a local/random SPI for its outbound packets.
-        // The received server SPI is the SPI embedded in the handshake, but server-side validation
-        // uses its own expected SPI rather than trusting the packet's SPI field.
+        // The received server SPI is embedded in the handshake, but the server validates its own expected SPI.
         _securityDatabase.Insert(out var clientSpi, association);
         SecuritySpi = clientSpi;
         _codec?.SetSecuritySpi(clientSpi);
