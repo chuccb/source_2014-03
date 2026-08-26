@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Sockets;
 
+using NetSocket = System.Net.Sockets.Socket;
+
 namespace KncWX2Server.Core.Common.Socket;
 
 public enum SocketDisconnectReason
@@ -18,7 +20,7 @@ public sealed class TcpSocketConnection : IAsyncDisposable
 {
     public const int MaxPacketSize = 32 * 1024;
 
-    private readonly Socket _socket;
+    private readonly NetSocket _socket;
     private readonly Lock _sendGate = new();
     private readonly SendBuffer _sendBuffer;
     private readonly SemaphoreSlim _sendWake = new(0);
@@ -29,14 +31,14 @@ public sealed class TcpSocketConnection : IAsyncDisposable
     private int _closed;
     private int _disconnectRaised;
 
-    public TcpSocketConnection(Socket socket, int sendQueueSize = MaxPacketSize)
+    public TcpSocketConnection(NetSocket socket, int sendQueueSize = MaxPacketSize)
     {
         ArgumentNullException.ThrowIfNull(socket);
         _socket = socket;
         _sendBuffer = new(MaxPacketSize, sendQueueSize);
     }
 
-    public Socket Socket => _socket;
+    public NetSocket Socket => _socket;
     public bool IsConnected => Volatile.Read(ref _closed) == 0 && _socket.Connected;
     public bool IsSending { get; private set; }
     public int SendQueueLength { get { lock (_sendGate) return _sendBuffer.QueueLength; } }
