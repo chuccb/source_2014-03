@@ -26,9 +26,9 @@ public static class KncUid
 
     public static uint Die32()
     {
+        Span<byte> bytes = stackalloc byte[4];
         while (true)
         {
-            Span<byte> bytes = stackalloc byte[4];
             RandomNumberGenerator.Fill(bytes);
             var value = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
             if (value != 0)
@@ -38,9 +38,9 @@ public static class KncUid
 
     public static long GetTempUid(KncUidLayout layout)
     {
+        Span<byte> bytes = stackalloc byte[8];
         while (true)
         {
-            Span<byte> bytes = stackalloc byte[8];
             RandomNumberGenerator.Fill(bytes);
             var value = BinaryPrimitives.ReadUInt64LittleEndian(bytes) & unchecked((ulong)layout.PureMask);
             if (value != 0)
