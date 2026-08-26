@@ -65,6 +65,7 @@ public sealed class TcpSocketConnection : IAsyncDisposable
         if (data.IsEmpty || Volatile.Read(ref _closed) != 0)
             return false;
 
+        var overflow = false;
         lock (_sendGate)
         {
             if (!_sendBuffer.Enqueue(data))
@@ -73,9 +74,14 @@ public sealed class TcpSocketConnection : IAsyncDisposable
                 // and circular queue cannot accept the complete input payload.
                 _sendBuffer.Clear();
                 IsSending = false;
-                DisconnectReason = SocketDisconnectReason.SendBufferFull;
-                return false;
+                overflow = true;
             }
+        }
+
+        if (overflow)
+        {
+            CloseTransport(SocketDisconnectReason.SendBufferFull);
+            return false;
         }
 
         _sendWake.Release();
@@ -179,14 +185,14 @@ public sealed class TcpSocketConnection : IAsyncDisposable
                         return;
                     }
 
-                    if (sent <= 0)
-                    {
-                        CloseTransport(SocketDisconnectReason.SendFailed);
+                    if (sent <= 0 || Volatile.Read(ref _closed) != 0)
                         return;
-                    }
 
                     lock (_sendGate)
                     {
+                        if (Volatile.Read(ref _closed) != 0)
+                            return;
+
                         _sendBuffer.ConsumeActive(sent);
                         _sendBuffer.CopyQueuedToActive();
                         IsSending = !_sendBuffer.IsEmpty;
