@@ -4,7 +4,7 @@ namespace KncWX2Server.Core.Common;
 
 public sealed class KPerformerInfo
 {
-    public const int MaxUidCount = 2000;
+    public const int MaxUidCount = 100;
 
     public uint PerformerId { get; set; }
     public SortedSet<long> Uids { get; } = [];
@@ -13,7 +13,7 @@ public sealed class KPerformerInfo
 
     public bool AddUid(long uid)
     {
-        if (Uids.Count >= MaxUidCount && !Uids.Contains(uid))
+        if (Uids.Count >= MaxUidCount)
             return false;
         return Uids.Add(uid) || Uids.Contains(uid);
     }
@@ -39,12 +39,13 @@ public sealed class KPerformerInfo
         Uids.Clear();
         if (!serializer.Get(out uint performerId) || !serializer.ReadAndCheckTag(SerializeTag.Set) || !serializer.Get(out uint count))
             return false;
-        if (count > MaxUidCount)
-            return false;
 
         for (var i = 0; i < count; i++)
-            if (!serializer.Get(out long uid) || !Uids.Add(uid))
+        {
+            if (!serializer.Get(out long uid))
                 return false;
+            Uids.Add(uid);
+        }
 
         PerformerId = performerId;
         return true;
