@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using System.Text;
 using KncWX2Server.Core.Common.Security;
 using CoreEvent = KncWX2Server.Core.Common.KEvent;
@@ -258,10 +259,11 @@ public sealed class KSerializer
     public bool PutWString(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        var bytes = Encoding.Unicode.GetBytes(value);
+        var chars = value.AsSpan();
+        var bytes = MemoryMarshal.AsBytes(chars);
         if (!WriteTag(SerializeTag.WString) || !Put((uint)bytes.Length))
             return false;
-        return bytes.Length == 0 || WriteBytes(bytes);
+        return bytes.IsEmpty || WriteBytes(bytes);
     }
 
     public bool GetWString(out string value)
@@ -272,7 +274,7 @@ public sealed class KSerializer
         var bytes = new byte[checked((int)byteLength)];
         if (!bytes.AsSpan().IsEmpty && !ReadBytes(bytes))
             return false;
-        value = Encoding.Unicode.GetString(bytes);
+        value = new string(MemoryMarshal.Cast<byte, char>(bytes));
         return true;
     }
 
