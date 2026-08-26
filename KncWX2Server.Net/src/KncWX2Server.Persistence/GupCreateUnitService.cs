@@ -85,9 +85,6 @@ public sealed class GupCreateUnitService
             if (unitUid <= 0)
                 return await RollbackAsync(transaction, new(-12, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
 
-            if (nickname.Length > 16)
-                return await RollbackAsync(transaction, new(-13, unitUid, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
-
             if (!await InsertUnitNicknameAsync(
                     connection,
                     transaction,
