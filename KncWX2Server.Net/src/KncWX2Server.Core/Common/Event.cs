@@ -110,10 +110,9 @@ public sealed class KEvent
 
     internal bool WriteFields(KSerializer serializer)
     {
-        // Legacy KEvent::Put writes KPerformerInfo through KSerializer::Put,
-        // therefore the nested user-class tag is present here as well.
-        if (!serializer.WriteTag(SerializeTag.UserClass) ||
-            !Destination.WriteFields(serializer) ||
+        // KSerializer.Put(KEvent) contributes the outer user-class tag.
+        // KPerformerInfo is itself a user class, so it must go through Put().
+        if (!serializer.Put(Destination) ||
             !serializer.Put(FirstTrace) ||
             !serializer.Put(LastTrace) ||
             !serializer.Put(EventId) ||
@@ -126,8 +125,7 @@ public sealed class KEvent
 
     internal bool ReadFields(KSerializer serializer)
     {
-        if (!serializer.ReadAndCheckTag(SerializeTag.UserClass) ||
-            !Destination.ReadFields(serializer) ||
+        if (!serializer.Get(Destination) ||
             !serializer.Get(out long firstTrace) ||
             !serializer.Get(out long lastTrace) ||
             !serializer.Get(out ushort eventId) ||
