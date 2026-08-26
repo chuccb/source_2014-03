@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <RootNamespace>KncWX2Server.Host</RootNamespace>
+    <AssemblyName>KncWX2Server.Host</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../KncWX2Server.Core/KncWX2Server.Core.csproj" />
+    <ProjectReference Include="../KncWX2Server.Persistence/KncWX2Server.Persistence.csproj" />
+  </ItemGroup>
+</Project>
