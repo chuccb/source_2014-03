@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Security.Cryptography;
 
 namespace KncWX2Server.Core.Common.Security;
@@ -12,7 +11,7 @@ public readonly record struct SecurityAssociationState(
 
 /// <summary>
 /// Direct managed counterpart of the legacy KSecurityAssociation.
-/// Wire/crypto parameters are intentionally kept identical to the legacy implementation.
+/// The cryptographic parameters and sequence-number semantics mirror the 2014 source.
 /// </summary>
 public sealed class SecurityAssociation
 {
@@ -24,8 +23,10 @@ public sealed class SecurityAssociation
     public const int MaxExtraPadBlocks = 1;
     public const uint MaxSequenceNumber = uint.MaxValue;
 
-    private static readonly byte[] DefaultAuthKey = "임시로만드는키"u8.ToArray()[..AuthKeySize];
-    private static readonly byte[] DefaultCryptoKey = "해커들절대모를키"u8.ToArray()[..CryptoKeySize];
+    // KncSecurity71.vcproj declares the source file as ks_c_5601-1987.
+    // These are the exact first 8 bytes of the two legacy narrow string literals under CP949.
+    private static readonly byte[] DefaultAuthKey = [0xC0, 0xD3, 0xBD, 0xC3, 0xB7, 0xCE, 0xB8, 0xB8];
+    private static readonly byte[] DefaultCryptoKey = [0xC7, 0xD8, 0xC4, 0xBF, 0xB5, 0xE9, 0xC0, 0xFD];
 
     public byte[] AuthKey { get; private set; } = [.. DefaultAuthKey];
     public byte[] CryptoKey { get; private set; } = [.. DefaultCryptoKey];
@@ -35,27 +36,14 @@ public sealed class SecurityAssociation
 
     public void ResetRandomizeKey()
     {
-        AuthKey = new byte[AuthKeySize];
-        CryptoKey = new byte[CryptoKeySize];
-        RandomNumberGenerator.Fill(AuthKey);
-        RandomNumberGenerator.Fill(CryptoKey);
-
-        for (var i = 0; i < AuthKey.Length; i++)
-            if (AuthKey[i] == 0)
-                AuthKey[i] = 1;
-
-        for (var i = 0; i < CryptoKey.Length; i++)
-            if (CryptoKey[i] == 0)
-                CryptoKey[i] = 1;
+        AuthKey = [.. Enumerable.Range(0, AuthKeySize).Select(static _ => (byte)RandomNumberGenerator.GetInt32(1, byte.MaxValue + 1))];
+        CryptoKey = [.. Enumerable.Range(0, CryptoKeySize).Select(static _ => (byte)RandomNumberGenerator.GetInt32(1, byte.MaxValue + 1))];
     }
 
     public void SetAuthKey(ReadOnlySpan<byte> key) => AuthKey = key.ToArray();
     public void SetCryptoKey(ReadOnlySpan<byte> key) => CryptoKey = key.ToArray();
 
-    public void IncrementSequenceNumber()
-    {
-        SequenceNumber++;
-    }
+    public void IncrementSequenceNumber() => SequenceNumber++;
 
     public void IncrementSequenceNumberNoReplayWindow()
     {
@@ -98,8 +86,7 @@ public sealed class SecurityAssociation
         if (difference >= windowSize)
             return false;
 
-        var bit = 1u << (int)difference;
-        return (ReplayWindowMask & bit) == 0;
+        return (ReplayWindowMask & (1u << (int)difference)) == 0;
     }
 
     public void UpdateReplayWindow(uint sequenceNumber)
@@ -112,11 +99,9 @@ public sealed class SecurityAssociation
         if (sequenceNumber > LastSequenceNumber)
         {
             var difference = sequenceNumber - LastSequenceNumber;
-            if (difference < windowSize)
-                ReplayWindowMask = (ReplayWindowMask << (int)difference) | 1u;
-            else
-                ReplayWindowMask = 1u;
-
+            ReplayWindowMask = difference < windowSize
+                ? (ReplayWindowMask << (int)difference) | 1u
+                : 1u;
             LastSequenceNumber = sequenceNumber;
             return;
         }
@@ -125,15 +110,16 @@ public sealed class SecurityAssociation
         ReplayWindowMask |= 1u << (int)oldDifference;
     }
 
-    public byte[] Encrypt(ReadOnlySpan<byte> payload, ReadOnlySpan<byte> iv) => DesCbc.Transform(CryptoKey, iv, payload, encrypt: true);
+    public byte[] Encrypt(ReadOnlySpan<byte> payload, ReadOnlySpan<byte> iv) =>
+        DesCbc.Transform(CryptoKey, iv, payload, encrypt: true);
 
-    public byte[] Decrypt(ReadOnlySpan<byte> ciphertext, ReadOnlySpan<byte> iv) => DesCbc.Transform(CryptoKey, iv, ciphertext, encrypt: false);
+    public byte[] Decrypt(ReadOnlySpan<byte> ciphertext, ReadOnlySpan<byte> iv) =>
+        DesCbc.Transform(CryptoKey, iv, ciphertext, encrypt: false);
 
     public byte[] GenerateIcv(ReadOnlySpan<byte> authenticatedData)
     {
         using var hmac = new HMACMD5(AuthKey);
-        var digest = hmac.ComputeHash(authenticatedData.ToArray());
-        return digest[..IcvSize];
+        return hmac.ComputeHash(authenticatedData.ToArray())[..IcvSize];
     }
 
     public SecurityAssociationState Snapshot() =>
@@ -159,8 +145,8 @@ public sealed class SecurityAssociation
                 throw new ArgumentException("DES requires an 8-byte key.", nameof(key));
             if (iv.Length != IvSize)
                 throw new ArgumentException("DES CBC requires an 8-byte IV.", nameof(iv));
-            if (input.Length == 0 || (input.Length % BlockSize) != 0)
-                throw new ArgumentException("DES CBC input must contain at least one complete block.", nameof(input));
+            if (input.Length == 0 || input.Length % BlockSize != 0)
+                throw new ArgumentException("DES CBC input must contain complete blocks.", nameof(input));
 
             using var des = DES.Create();
             des.Key = key.ToArray();
