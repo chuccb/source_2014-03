@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/KncWX2Server.Core/KncWX2Server.Core.csproj" />
+    <Project Path="src/KncWX2Server.Persistence/KncWX2Server.Persistence.csproj" />
+    <Project Path="src/KncWX2Server.Host/KncWX2Server.Host.csproj" />
+    <Project Path="src/KncWX2Server.LoginServer/KncWX2Server.LoginServer.csproj" />
+    <Project Path="src/KncWX2Server.CenterServer/KncWX2Server.CenterServer.csproj" />
+    <Project Path="src/KncWX2Server.ChannelServer/KncWX2Server.ChannelServer.csproj" />
+    <Project Path="src/KncWX2Server.GameServer/KncWX2Server.GameServer.csproj" />
+  </Folder>
+</Solution>
