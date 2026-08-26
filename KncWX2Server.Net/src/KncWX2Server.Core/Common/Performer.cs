@@ -31,7 +31,7 @@ public abstract class KPerformer : SimObject
         UpdateMaxQueueSize(queueSize);
     }
 
-    public void Tick()
+    public virtual void Tick()
     {
         while (GetKEvent(out var eventObject))
             ProcessEvent(eventObject);
