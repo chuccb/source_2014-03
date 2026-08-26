@@ -46,25 +46,7 @@ public static class KUnitInfoSerialization
             && serializer.PutMap(value.DungeonClear, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KDungeonClearInfo item) => s.Put(item))
             && serializer.PutMap(value.TcClear, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KTCClearInfo item) => s.Put(item))
             && serializer.PutMap(value.DungeonPlay, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KDungeonPlayInfo item) => s.Put(item))
-            && serializer.PutMap(value.EquippedItems, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KInventoryItemInfo item) => s.Put(item))
-            && serializer.Put(value.UnitSkillData)
-            && serializer.Put(value.IsParty)
-            && serializer.Put(value.SpiritMax)
-            && serializer.Put(value.Spirit)
-            && serializer.Put(value.IsGameBang)
-            && serializer.Put(value.PcBangType)
-            && serializer.Put(value.TitleId)
-            && serializer.Put(value.UserGuildInfo)
-            && serializer.PutWString(value.LastLoginTime)
-            && serializer.Put(value.WarpVipEndTime)
-            && serializer.Put(value.EventQuestClearCount)
-            && serializer.Put(value.ExchangeCount)
-            && serializer.Put(value.OldYearMissionRewardedLevel)
-            && serializer.Put(value.NewYearMissionStepId)
-            && serializer.Put(value.CheckPowerCount)
-            && serializer.Put(value.CheckPowerTime)
-            && serializer.Put(value.CheckPowerShowPopUp)
-            && serializer.Put(value.CheckPowerScore);
+            && serializer.PutMap(value.EquippedItems, static (KSerializer s, int key) => s.Put(key), static (KSerializer s, KInventoryItemInfo item) => s.Put(item));
     }
 
     public static bool Get(this KSerializer serializer, out KUnitInfo value)
@@ -185,20 +167,28 @@ public static class KUnitInfoSerialization
     }
 
     private static bool GetDungeonClear(KSerializer serializer, Dictionary<int, KDungeonClearInfo> value) =>
-        serializer.GetMap(value.Clear, value.TryAdd, static (KSerializer s, out int key, out KDungeonClearInfo item) =>
-            s.Get(out key) && s.Get(out item));
+        serializer.GetMap(
+            value.Clear,
+            (int key, KDungeonClearInfo item) => { value.TryAdd(key, item); return true; },
+            static (KSerializer s, out int key, out KDungeonClearInfo item) => s.Get(out key) && s.Get(out item));
 
     private static bool GetTcClear(KSerializer serializer, Dictionary<int, KTCClearInfo> value) =>
-        serializer.GetMap(value.Clear, value.TryAdd, static (KSerializer s, out int key, out KTCClearInfo item) =>
-            s.Get(out key) && s.Get(out item));
+        serializer.GetMap(
+            value.Clear,
+            (int key, KTCClearInfo item) => { value.TryAdd(key, item); return true; },
+            static (KSerializer s, out int key, out KTCClearInfo item) => s.Get(out key) && s.Get(out item));
 
     private static bool GetDungeonPlay(KSerializer serializer, Dictionary<int, KDungeonPlayInfo> value) =>
-        serializer.GetMap(value.Clear, value.TryAdd, static (KSerializer s, out int key, out KDungeonPlayInfo item) =>
-            s.Get(out key) && s.Get(out item));
+        serializer.GetMap(
+            value.Clear,
+            (int key, KDungeonPlayInfo item) => { value.TryAdd(key, item); return true; },
+            static (KSerializer s, out int key, out KDungeonPlayInfo item) => s.Get(out key) && s.Get(out item));
 
     private static bool GetEquippedItems(KSerializer serializer, Dictionary<int, KInventoryItemInfo> value) =>
-        serializer.GetMap(value.Clear, value.TryAdd, static (KSerializer s, out int key, out KInventoryItemInfo item) =>
-            s.Get(out key) && s.Get(out item));
+        serializer.GetMap(
+            value.Clear,
+            (int key, KInventoryItemInfo item) => { value.TryAdd(key, item); return true; },
+            static (KSerializer s, out int key, out KInventoryItemInfo item) => s.Get(out key) && s.Get(out item));
 
     private static void CopyUnitSkillData(KUnitSkillData destination, KUnitSkillData source)
     {
