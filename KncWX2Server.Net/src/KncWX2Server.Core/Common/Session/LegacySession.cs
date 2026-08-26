@@ -33,6 +33,7 @@ public abstract class LegacySession : KPerformer, IAsyncDisposable
     private uint _packetAuthFailureLimit = DefaultPacketAuthFailLimit;
     private bool _checkSequenceNumbers;
     private bool _checkHeartbeat = true;
+    private bool _disposing;
 
     protected LegacySession(bool isProxy, SecurityAssociationDatabase securityDatabase)
     {
@@ -233,10 +234,7 @@ public abstract class LegacySession : KPerformer, IAsyncDisposable
             return;
 
         if (!_framer.Append(data.Span, DecodeFrame))
-        {
             await StopAsync(SocketDisconnectReason.ReceiveFailed).ConfigureAwait(false);
-            return;
-        }
     }
 
     private void DecodeFrame(ReadOnlyMemory<byte> frame)
@@ -310,6 +308,9 @@ public abstract class LegacySession : KPerformer, IAsyncDisposable
 
     private ValueTask OnTransportDisconnectedAsync(SocketDisconnectReason reason)
     {
+        if (!_disposing)
+            ReserveDestroy();
+
         if (!IsSecurityKeyReceived)
             _securityKeyReceived.TrySetException(new IOException($"Security handshake failed: {reason}."));
 
@@ -321,6 +322,8 @@ public abstract class LegacySession : KPerformer, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _disposing = true;
+
         var connection = _connection;
         if (connection is not null)
             await connection.DisposeAsync().ConfigureAwait(false);
