@@ -26,8 +26,6 @@ public sealed class GupCreateUnitService
         var sdtNow = NormalizeSqlSmallDateTime(DateTime.Now);
         var nowText = FormatDate(sdtNow);
 
-        // SQL Server leaves this variable NULL when the configuration table is empty.
-        // The procedure only turns that into -21 when the GSpirit INSERT fails.
         var startSpirit = await ScalarNullableInt64Async(
             connection,
             "SELECT StartSpirit FROM GResurrectionStoneCnt LIMIT 1;",
@@ -108,7 +106,6 @@ public sealed class GupCreateUnitService
                     return await RollbackAsync(transaction, new(-14, 0, legacyNicknameDate ?? LegacySqlDateFallback), cancellationToken).ConfigureAwait(false);
             }
 
-            // The legacy procedure does not inspect @@ERROR/@@ROWCOUNT for this INSERT.
             await InsertInitialQuestAsync(
                 connection,
                 transaction,
@@ -209,14 +206,21 @@ public sealed class GupCreateUnitService
         string nowText,
         CancellationToken cancellationToken)
     {
-        return await ExecuteNonQueryAsync(
-            connection,
-            transaction,
-            "INSERT INTO GUnitNickName (UnitUID, NickName, RegDate) VALUES ($unitUid, $nickname, $nowText);",
-            cancellationToken,
-            ("$unitUid", unitUid),
-            ("$nickname", nickname),
-            ("$nowText", nowText)).ConfigureAwait(false) == 1;
+        try
+        {
+            return await ExecuteNonQueryAsync(
+                connection,
+                transaction,
+                "INSERT INTO GUnitNickName (UnitUID, NickName, RegDate) VALUES ($unitUid, $nickname, $nowText);",
+                cancellationToken,
+                ("$unitUid", unitUid),
+                ("$nickname", nickname),
+                ("$nowText", nowText)).ConfigureAwait(false) == 1;
+        }
+        catch (SqliteException)
+        {
+            return false;
+        }
     }
 
     private static async ValueTask<bool> InsertDenyOptionAsync(
@@ -226,13 +230,20 @@ public sealed class GupCreateUnitService
         int questionNo,
         CancellationToken cancellationToken)
     {
-        return await ExecuteNonQueryAsync(
-            connection,
-            transaction,
-            "INSERT INTO GDenyOption (UnitUID, QuestionNo, CodeNo) VALUES ($unitUid, $questionNo, 1);",
-            cancellationToken,
-            ("$unitUid", unitUid),
-            ("$questionNo", questionNo)).ConfigureAwait(false) == 1;
+        try
+        {
+            return await ExecuteNonQueryAsync(
+                connection,
+                transaction,
+                "INSERT INTO GDenyOption (UnitUID, QuestionNo, CodeNo) VALUES ($unitUid, $questionNo, 1);",
+                cancellationToken,
+                ("$unitUid", unitUid),
+                ("$questionNo", questionNo)).ConfigureAwait(false) == 1;
+        }
+        catch (SqliteException)
+        {
+            return false;
+        }
     }
 
     private static async ValueTask InsertInitialQuestAsync(
@@ -259,14 +270,21 @@ public sealed class GupCreateUnitService
         string nowText,
         CancellationToken cancellationToken)
     {
-        return await ExecuteNonQueryAsync(
-            connection,
-            transaction,
-            "INSERT INTO GSkill (UnitUID, SkillID, RegDate) VALUES ($unitUid, $skillId, $nowText);",
-            cancellationToken,
-            ("$unitUid", unitUid),
-            ("$skillId", skillId),
-            ("$nowText", nowText)).ConfigureAwait(false) == 1;
+        try
+        {
+            return await ExecuteNonQueryAsync(
+                connection,
+                transaction,
+                "INSERT INTO GSkill (UnitUID, SkillID, RegDate) VALUES ($unitUid, $skillId, $nowText);",
+                cancellationToken,
+                ("$unitUid", unitUid),
+                ("$skillId", skillId),
+                ("$nowText", nowText)).ConfigureAwait(false) == 1;
+        }
+        catch (SqliteException)
+        {
+            return false;
+        }
     }
 
     private static async ValueTask<bool> InsertSkillSlotAsync(
@@ -276,13 +294,20 @@ public sealed class GupCreateUnitService
         int skillId,
         CancellationToken cancellationToken)
     {
-        return await ExecuteNonQueryAsync(
-            connection,
-            transaction,
-            "INSERT INTO GSkillSlot (UnitUID, Slot01, Slot02, Slot03) VALUES ($unitUid, $skillId, 0, 0);",
-            cancellationToken,
-            ("$unitUid", unitUid),
-            ("$skillId", skillId)).ConfigureAwait(false) == 1;
+        try
+        {
+            return await ExecuteNonQueryAsync(
+                connection,
+                transaction,
+                "INSERT INTO GSkillSlot (UnitUID, Slot01, Slot02, Slot03) VALUES ($unitUid, $skillId, 0, 0);",
+                cancellationToken,
+                ("$unitUid", unitUid),
+                ("$skillId", skillId)).ConfigureAwait(false) == 1;
+        }
+        catch (SqliteException)
+        {
+            return false;
+        }
     }
 
     private static async ValueTask<bool> InsertSpiritAsync(
