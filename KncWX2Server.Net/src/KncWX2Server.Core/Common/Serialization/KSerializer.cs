@@ -344,6 +344,81 @@ public sealed class KSerializer
         return true;
     }
 
+    public bool PutVector<T>(IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement)
+    {
+        return PutSequence(SerializeTag.Vector, value, putElement);
+    }
+
+    public bool PutList<T>(IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement)
+    {
+        return PutSequence(SerializeTag.List, value, putElement);
+    }
+
+    public bool PutDeque<T>(IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement)
+    {
+        return PutSequence(SerializeTag.Deque, value, putElement);
+    }
+
+    public bool GetVector<T>(ICollection<T> value, ElementReader<T> readElement)
+    {
+        return GetSequence(SerializeTag.Vector, value, readElement);
+    }
+
+    public bool GetList<T>(ICollection<T> value, ElementReader<T> readElement)
+    {
+        return GetSequence(SerializeTag.List, value, readElement);
+    }
+
+    public bool GetDeque<T>(ICollection<T> value, ElementReader<T> readElement)
+    {
+        return GetSequence(SerializeTag.Deque, value, readElement);
+    }
+
+    private bool PutSequence<T>(
+        SerializeTag tag,
+        IReadOnlyCollection<T> value,
+        Func<KSerializer, T, bool> putElement)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(putElement);
+
+        var expectedCount = checked((uint)value.Count);
+        if (!WriteTag(tag) || !Put(expectedCount))
+            return false;
+
+        uint count = 0;
+        foreach (var element in value)
+        {
+            if (!putElement(this, element))
+                return false;
+            count++;
+        }
+
+        return count == expectedCount;
+    }
+
+    private bool GetSequence<T>(
+        SerializeTag tag,
+        ICollection<T> value,
+        ElementReader<T> readElement)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(readElement);
+
+        value.Clear();
+        if (!ReadAndCheckTag(tag) || !Get(out uint count))
+            return false;
+
+        for (uint i = 0; i < count; i++)
+        {
+            if (!readElement(this, out var element))
+                return false;
+            value.Add(element);
+        }
+
+        return true;
+    }
+
     public bool Put<T>(IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement)
     {
         ArgumentNullException.ThrowIfNull(value);
