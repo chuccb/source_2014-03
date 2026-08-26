@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 
@@ -165,7 +166,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<long> InsertUnitAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        DbTransaction transaction,
         long userUid,
         byte unitClass,
         string nowText,
@@ -200,7 +201,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<bool> InsertUnitNicknameAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        DbTransaction transaction,
         long unitUid,
         string nickname,
         string nowText,
@@ -225,7 +226,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<bool> InsertDenyOptionAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        DbTransaction transaction,
         long unitUid,
         int questionNo,
         CancellationToken cancellationToken)
@@ -248,7 +249,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask InsertInitialQuestAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        DbTransaction transaction,
         long unitUid,
         string nowText,
         CancellationToken cancellationToken)
@@ -264,7 +265,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<bool> InsertSkillAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        DbTransaction transaction,
         long unitUid,
         int skillId,
         string nowText,
@@ -289,7 +290,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<bool> InsertSkillSlotAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        DbTransaction transaction,
         long unitUid,
         int skillId,
         CancellationToken cancellationToken)
@@ -312,7 +313,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<bool> InsertSpiritAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        DbTransaction transaction,
         long unitUid,
         long? spirit,
         string nowText,
@@ -326,7 +327,7 @@ public sealed class GupCreateUnitService
                 "INSERT INTO GSpirit (unitUID, Spirit, RegDate) VALUES ($unitUid, $spirit, $nowText);",
                 cancellationToken,
                 ("$unitUid", unitUid),
-                ("$spirit", spirit is null ? DBNull.Value : spirit),
+                ("$spirit", (object?)spirit ?? DBNull.Value),
                 ("$nowText", nowText)).ConfigureAwait(false) == 1;
         }
         catch (SqliteException)
@@ -407,7 +408,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<int> ExecuteNonQueryAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        DbTransaction transaction,
         string sql,
         CancellationToken cancellationToken,
         params (string Name, object Value)[] parameters)
@@ -422,7 +423,7 @@ public sealed class GupCreateUnitService
     }
 
     private static async ValueTask<GupCreateUnitResult> RollbackAsync(
-        SqliteTransaction transaction,
+        DbTransaction transaction,
         GupCreateUnitResult result,
         CancellationToken cancellationToken)
     {
