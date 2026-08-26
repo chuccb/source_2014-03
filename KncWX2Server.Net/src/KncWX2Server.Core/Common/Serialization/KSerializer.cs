@@ -311,6 +311,39 @@ public sealed class KSerializer
         return true;
     }
 
+    public bool PutPair<TFirst, TSecond>(
+        TFirst first,
+        TSecond second,
+        Func<KSerializer, TFirst, bool> putFirst,
+        Func<KSerializer, TSecond, bool> putSecond)
+    {
+        ArgumentNullException.ThrowIfNull(putFirst);
+        ArgumentNullException.ThrowIfNull(putSecond);
+
+        return WriteTag(SerializeTag.Pair)
+            && putFirst(this, first)
+            && putSecond(this, second);
+    }
+
+    public bool GetPair<TFirst, TSecond>(
+        ElementReader<TFirst> readFirst,
+        ElementReader<TSecond> readSecond,
+        out TFirst first,
+        out TSecond second)
+    {
+        ArgumentNullException.ThrowIfNull(readFirst);
+        ArgumentNullException.ThrowIfNull(readSecond);
+
+        first = default!;
+        second = default!;
+        if (!ReadAndCheckTag(SerializeTag.Pair)
+            || !readFirst(this, out first)
+            || !readSecond(this, out second))
+            return false;
+
+        return true;
+    }
+
     public bool Put<T>(IReadOnlyCollection<T> value, Func<KSerializer, T, bool> putElement)
     {
         ArgumentNullException.ThrowIfNull(value);
