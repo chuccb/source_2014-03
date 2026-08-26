@@ -298,9 +298,7 @@ public sealed class KSerializer
     public bool Put(ByteStream value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        if (!WriteTag(SerializeTag.UserClass))
-            return false;
-        return SecuritySerialization.Write(this, value);
+        return WriteTag(SerializeTag.UserClass) && SecuritySerialization.Write(this, value);
     }
 
     public bool Get(ByteStream value)
@@ -312,9 +310,11 @@ public sealed class KSerializer
     public bool Put(SecurityAssociation value)
     {
         ArgumentNullException.ThrowIfNull(value);
+        var authKey = ByteStream.From(value.AuthKey);
+        var cryptoKey = ByteStream.From(value.CryptoKey);
         return WriteTag(SerializeTag.UserClass)
-            && Put(value.AuthKey)
-            && Put(value.CryptoKey)
+            && Put(authKey)
+            && Put(cryptoKey)
             && Put(value.SequenceNumber)
             && Put(value.LastSequenceNumber)
             && Put(value.ReplayWindowMask);
@@ -323,16 +323,16 @@ public sealed class KSerializer
     public bool Get(SecurityAssociation value)
     {
         ArgumentNullException.ThrowIfNull(value);
+        var authKey = new ByteStream();
+        var cryptoKey = new ByteStream();
         if (!ReadAndCheckTag(SerializeTag.UserClass)
-            || !Get(out ByteStream authKey)
-            || !Get(out ByteStream cryptoKey)
+            || !Get(authKey)
+            || !Get(cryptoKey)
             || !Get(out uint sequenceNumber)
             || !Get(out uint lastSequenceNumber)
             || !Get(out uint replayWindowMask))
             return false;
 
-        value.SetAuthKey(authKey.Span);
-        value.SetCryptoKey(cryptoKey.Span);
         value.Restore(new SecurityAssociationState(
             authKey.ToArray(), cryptoKey.ToArray(), sequenceNumber, lastSequenceNumber, replayWindowMask));
         return true;
