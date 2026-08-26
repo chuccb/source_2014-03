@@ -21,6 +21,8 @@ public sealed class SqliteDbAgent(
 
     public int RegisteredHandlerCount => _handlers.Count;
 
+    public void RegisterHandler(ISqliteDbEventHandler handler) => _handlers.Register(handler);
+
     /// <summary>Called instead of throwing when no legacy EventId handler exists.</summary>
     public Action<DbConnectionId, ushort>? UnknownEvent { get; set; }
 
