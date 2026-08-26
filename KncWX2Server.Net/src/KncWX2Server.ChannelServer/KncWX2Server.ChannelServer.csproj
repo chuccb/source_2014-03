@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>KncWX2Server.ChannelServer</RootNamespace>
+    <AssemblyName>KncWX2Server.ChannelServer</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../KncWX2Server.Core/KncWX2Server.Core.csproj" />
+    <ProjectReference Include="../KncWX2Server.Host/KncWX2Server.Host.csproj" />
+  </ItemGroup>
+</Project>
