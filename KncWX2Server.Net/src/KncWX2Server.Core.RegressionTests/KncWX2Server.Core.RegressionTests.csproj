@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>KncWX2Server.Core.RegressionTests</RootNamespace>
+    <AssemblyName>KncWX2Server.Core.RegressionTests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../KncWX2Server.Core/KncWX2Server.Core.csproj" />
+  </ItemGroup>
+</Project>
