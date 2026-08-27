@@ -9,7 +9,11 @@ namespace KncWX2Server.Host;
 public sealed class KncServerHost(ServerOptions options, SqliteDatabase database)
 {
     private readonly ConcurrentDictionary<long, Task> _sessions = new();
+    private readonly ConcurrentDictionary<long, ServerActor> _sessionActors = new();
+    private readonly ServerActorManager _actors = new();
     private long _nextSessionId;
+
+    public int ActorCount => _actors.Count;
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
@@ -17,6 +21,9 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
 
         var listener = new TcpListener(options.BindAddress, options.Port);
         listener.Start(options.Backlog);
+
+        using var tickCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var tickTask = RunActorTicksAsync(tickCancellation.Token);
 
         Console.WriteLine($"[{options.Role}] listening on {options.BindAddress}:{options.Port}");
         Console.WriteLine($"SQLite: {database.DatabasePath}; workers={options.WorkerCount}; packet-auth-limit={options.PacketAuthFailLimit}; sequence-check={options.CheckSequenceNumbers}; no-delay={options.NoDelay}");
@@ -35,12 +42,20 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
                     break;
                 }
 
-                // Legacy accepter enables Nagle by default; only --no-delay maps to TCP_NODELAY.
                 client.NoDelay = options.NoDelay;
 
                 var sessionId = Interlocked.Increment(ref _nextSessionId);
-                var session = new KncServerSession(sessionId, client, options, DispatchAsync, cancellationToken);
-                var task = session.RunAsync();
+                var actor = _actors.Create(sessionId, ProcessActorEventAsync);
+                _sessionActors[sessionId] = actor;
+
+                var session = new KncServerSession(
+                    sessionId,
+                    client,
+                    options,
+                    QueueSessionEventAsync,
+                    cancellationToken);
+
+                var task = RunSessionAsync(sessionId, session);
                 _sessions[sessionId] = task;
                 _ = RemoveCompletedSessionAsync(sessionId, task);
             }
@@ -48,18 +63,58 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
         finally
         {
             listener.Stop();
+            tickCancellation.Cancel();
+
+            try
+            {
+                await tickTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (tickCancellation.IsCancellationRequested)
+            {
+            }
+
+            foreach (var actor in _sessionActors.Values)
+                actor.Events.Clear();
+
             await WaitForSessionsAsync().ConfigureAwait(false);
         }
     }
 
-    private static ValueTask DispatchAsync(KncServerSession session, KEvent @event)
+    private ValueTask QueueSessionEventAsync(KncServerSession session, KEvent @event)
     {
-        Console.WriteLine($"[{session.SessionId}] event={@event.EventId} spi={session.Spi} payload={@event.Buffer.Length} bytes");
-
-        // Role-specific opcode handlers are not guessed here. The native server
-        // routes KEvent through actor/server managers; those callers are the next
-        // subsystem to port once this transport contract is stable.
+        if (_sessionActors.TryGetValue(session.SessionId, out var actor))
+            actor.QueueingEvent(@event);
         return ValueTask.CompletedTask;
+    }
+
+    private static ValueTask ProcessActorEventAsync(ServerActor actor, KEvent @event)
+    {
+        Console.WriteLine($"actor={actor.Id} uid={actor.Uid} event={@event.EventId} payload={@event.Buffer.Length} bytes");
+
+        // The queue/FSM boundary is now real and owned by ServerActor. Individual
+        // role opcode handlers are deliberately connected in their service stage;
+        // no business operation is invented at this shared layer.
+        return ValueTask.CompletedTask;
+    }
+
+    private async Task RunActorTicksAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(1));
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            await _actors.TickAsync().ConfigureAwait(false);
+    }
+
+    private async Task RunSessionAsync(long sessionId, KncServerSession session)
+    {
+        try
+        {
+            await session.RunAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            if (_sessionActors.TryGetValue(sessionId, out var actor))
+                _actors.ReserveDelete(actor.Uid);
+        }
     }
 
     private async Task RemoveCompletedSessionAsync(long sessionId, Task task)
@@ -71,6 +126,7 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
         finally
         {
             _sessions.TryRemove(sessionId, out _);
+            _sessionActors.TryRemove(sessionId, out _);
         }
     }
 
@@ -84,10 +140,10 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
 
 public static class KncServerBootstrap
 {
-    private static readonly List<ServerRole> _roles =
+    private static readonly ServerRole[] RolesValue =
         [ServerRole.Login, ServerRole.Center, ServerRole.Channel, ServerRole.Game];
 
-    public static IReadOnlyList<ServerRole> Roles => _roles;
+    public static IReadOnlyList<ServerRole> Roles => RolesValue;
 
     public static async Task RunAsync(string[] args, ServerRole role, int defaultPort)
     {
