@@ -49,10 +49,14 @@ public sealed class ServerActorManager
         _pendingDelete.Enqueue(actor);
     }
 
-    public void QueueingTo(long uid, KEvent @event)
+    public bool QueueingTo(long uid, KEvent @event)
     {
         ArgumentNullException.ThrowIfNull(@event);
-        Get(uid)?.QueueingEvent(@event);
+        if (Get(uid) is not { } actor)
+            return false;
+
+        actor.QueueingEvent(@event);
+        return true;
     }
 
     public void QueueingToAll(KEvent @event)
