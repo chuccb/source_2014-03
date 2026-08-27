@@ -51,7 +51,8 @@ ServerActorManager
              ├───────────────┐
              ▼               ▼
        ServerEventRouter   Role-specific dispatch
-             │               ├─ Login [blocked: typed packet contract]
+             │               ├─ Login
+             │               │    └─ explicit typed-payload boundary [blocked until packet contract]
              │               ├─ Center
              │               ├─ Channel
              │               └─ Game
@@ -65,7 +66,7 @@ ServerActorManager
               service managers / persistence
 ```
 
-## This stage: Login role dispatch audit
+## Login role dispatch audit
 
 The native Login role is split across two distinct performers:
 
@@ -90,11 +91,9 @@ KLoginUser : KActor
   └─ Tick()/OnDestroy()
 ```
 
-The native source evidence establishes that role-specific dispatch is not merely `event-id -> callback`: the `_CASE` macro performs typed payload deserialization through `KSerializer`, then invokes a concrete handler and resets the event buffer. `KEvent::SetData<T>` uses the same generic serializer path for the payload.
+Native `_CASE` performs concrete payload deserialization with `KSerializer`, invokes `ON_<event>(trace, packet)`, then resets the event payload buffer. `KEvent::SetData<T>` uses the same typed serializer path. Therefore role dispatch cannot safely be reduced to an opcode callback table without the packet contract.
 
-The current managed host creates a generic `ServerActor` for each accepted session and currently installs a placeholder shared event processor. The Login project itself contains only `Program.cs` and the project file, so there is no existing managed `KLoginUser` or Login opcode dispatcher to re-use.
-
-For this reason the full Login opcode switch is **blocked** rather than approximated. A correct implementation first needs a strongly typed event-payload contract and the concrete Login packet serializers, plus the corresponding Login-side service/performer ownership. Reflection, `dynamic`, a guessed opcode table, or a byte-buffer convention would change semantics and is explicitly disallowed by the migration rules.
+The managed Login stage now has an explicit `LoginEventDispatcher` boundary. It classifies a Login-user destination as `TypedPayloadContractMissing` until a source-proven typed packet/serializer exists, and rejects non-Login destinations from the Login role boundary. It intentionally does not fabricate a concrete Login opcode handler.
 
 ## Login source chain audited
 
@@ -115,12 +114,12 @@ For this reason the full Login opcode switch is **blocked** rather than approxim
 
 ### Native Login ownership / routing observations
 
-- `KLoginServer::Init()` explicitly installs the Login network layer and a `KActorFactory<KLoginUser, KDefaultFSM, ...>`; the accepted server-side session therefore becomes a `KLoginUser` actor rather than a plain socket callback.
-- `KLoginUser::ProcessEvent()` calls `RoutePacket()` before its role-local opcode switch.
-- `RoutePacket()` distinguishes lower-level forwarding, higher-level/proxy routing, and same-level destination performer classes; it queues to BaseServer/DB/room/auth managers rather than blindly writing to a socket.
-- `KLoginUser::OnDestroy()` unregisters its users from `KLoginSimLayer` and performs additional profile-dependent cleanup.
-- `KLoginUser::ELG_USER_DISCONNECT_REQ` performs user unregister plus `DBE_UPDATE_IS_LOGIN_NOT`, and its ACK behavior depends on the request's embedded event id. This is therefore not a safe no-payload starter event.
-- `DBE_VERIFY_SERVER_CONNECT_ACK` mutates actor identity/state (`SetName`, `UpdateUID`, authenticated transition) and performs duplicate UID protection, so it also depends on BaseServer/actor-registration semantics.
+- `KLoginServer::Init()` installs the Login network layer and a `KActorFactory<KLoginUser, KDefaultFSM, ...>`.
+- `KLoginUser::ProcessEvent()` calls `RoutePacket()` before the role-local opcode switch.
+- `RoutePacket()` distinguishes lower-level forwarding, higher-level/proxy routing, and same-level performer classes; it queues to BaseServer/DB/room/auth managers rather than blindly writing to a socket.
+- `KLoginUser::OnDestroy()` unregisters users from `KLoginSimLayer` and performs additional profile-dependent cleanup.
+- `KLoginUser::ELG_USER_DISCONNECT_REQ` performs user unregister plus `DBE_UPDATE_IS_LOGIN_NOT`; ACK behavior depends on embedded event semantics and optional account-count data.
+- `DBE_VERIFY_SERVER_CONNECT_ACK` mutates actor identity/state, checks duplicate UID, transitions to authenticated state, and depends on BaseServer performer registration plus the concrete packet contract.
 
 ### Managed chain audited
 
@@ -133,40 +132,32 @@ KncServerHost
   -> ProcessActorEventAsync (currently shared placeholder)
 ```
 
-`KncServerSession` performs packet authentication/decryption and `KEvent` deserialization before queueing. The host does not yet select a Login-specific processor, and no Login performer/service graph is present in the managed tree.
+`KncServerSession` authenticates/decrypts and deserializes `KEvent` before queueing. The Host layer still does not know how to provide a concrete Login typed packet handler; the new Login dispatcher boundary therefore stays explicit and partial rather than silently absorbing the event.
 
-## This stage: performer routing source-of-truth cleanup
+## Performer source-of-truth correction
 
-The audit found three managed performer-id definition files. Two were obsolete duplicates:
+The repository previously contained three managed performer-id definition files. The two obsolete duplicates were removed:
 
 - `src/KncWX2Server.Core/Common/PerformerIds.cs`
 - `src/KncWX2Server.Core/PerformerIds.cs`
 
-The authoritative definitions are now kept in:
+The authoritative definitions are:
 
 - `src/KncWX2Server.Core/Common/Routing/PerformerRouting.cs` — masks, server classes and performer-class constants.
 - `src/KncWX2Server.Core/Common/Routing/PerformerIds.cs` — exact combined `PerformerId` values.
 
-Existing routing implementations already consume the `Common.Routing` definitions. The obsolete duplicate files were removed so future Login/Center/Channel/Game routing work cannot silently drift between independent constant sets.
-
-## Earlier shared routing evidence
-
-Native `KncSend.cpp` first compares destination/current server class and then routes same-level events by performer class. Local users are found through `KActorManager`; DB/log performer classes are sent to `KDBLayer`; missing local user targets may be forwarded through `KProxyManager` when a trace exists; lower-level routing returns to the last sender UID; higher-level routing uses the proxy path.
-
-The managed stage introduces an explicit routing contract without pretending that the not-yet-converted proxy, room, base-server or DB-layer implementations already exist.
-
 ## Ownership / lifetime / threading
 
-- `ServerActorManager` owns active actor identity and ordering; its list is the managed equivalent of native `m_vecAct`, while the dictionary supplies UID lookup equivalent to `m_mapUID`.
-- `ServerPerformer` owns only internal event processing state and never owns a socket.
-- `ServerPerformerManager` keeps explicit registration order for deterministic ticks.
-- `ServerEventRouter` only enqueues; actual event processing stays on the corresponding actor/internal-performer tick loop.
-- `KncServerSession` owns one socket/security/lifetime domain; session shutdown cancels receive/heartbeat activity and closes the socket.
-- No reflection, dynamic dispatch, generated runtime code or unsafe memory is required by the verified routing layer.
+- `ServerActorManager` owns active actor identity/order; its list corresponds to native `m_vecAct` while its dictionary provides UID lookup.
+- `ServerPerformer` owns internal event processing state and never owns a socket.
+- `ServerPerformerManager` preserves explicit registration order for deterministic ticks.
+- `ServerEventRouter` only routes/enqueues; processing remains on the corresponding actor/internal-performer loop.
+- `KncServerSession` owns one socket/security/lifetime domain; cancellation closes session resources.
+- The Login boundary itself is stateless and alloc-free for the classification path.
 
 ## Performer ID / ABI
 
-Native performer IDs use a `DWORD` bitfield. The authoritative managed representation is `uint` and preserves:
+Native performer IDs are `DWORD` bitfields; managed routing uses `uint`.
 
 - performer mask `0x000000FF`
 - server class mask `0x00000F00`
@@ -174,36 +165,33 @@ Native performer IDs use a `DWORD` bitfield. The authoritative managed represent
 - server classes `SC_CLIENT` through `SC_GLOBAL`
 - verified performer classes, including `PC_GAME_DB_2ND` / `PC_LOG_DB_2ND`
 
-`UidType` is native `__int64`, represented by managed `long` in the current event/actor layer. Do not substitute C# `ulong` without new native evidence.
+Native `UidType` is `__int64`, represented by managed `long` in the current event/actor layer.
 
 ## Protocol / serializer status
 
-- Legacy outer TCP frame remains `[TotalLength:u16 LE, inclusive] + SecureBuffer`.
-- Native KEvent field order remains destination performer info, trace[2], event id, then serialized payload buffer (plus profile-dependent source metadata only when that build feature is active).
-- The typed `KEvent::SetData<T>` payload contract remains **blocked** until every Login starter event has a concrete packet declaration and serializer mapping.
+- Outer TCP frame remains `[TotalLength:u16 LE, inclusive] + SecureBuffer`.
+- Native KEvent field order remains destination performer info, trace[2], event id, then serialized payload buffer (plus feature-gated source metadata when active).
+- `KEvent::SetData<T>` / `_CASE` remain blocked from a concrete managed Login payload implementation until packet declaration and serializer evidence are complete.
 
 ## Regression coverage
 
-`KncWX2Server.Core.RegressionTests` currently verifies:
+`KncWX2Server.Core.RegressionTests` now additionally verifies:
 
-- deterministic actor insertion-order processing
-- deferred actor lifecycle
-- local `PC_USER` routing
-- mixed local/missing user targets
-- internal `PC_GAME_DB_2ND` routing into an internal performer FIFO
-- existing serializer, UTF-16LE, compression, KEvent, frame, security and replay regressions
+- Login-user destination enters the explicit `TypedPayloadContractMissing` boundary.
+- Non-Login destinations do not enter Login role dispatch.
 
-No new test claims were added for Login role dispatch because no Login opcode handler was fabricated.
+Existing routing/serializer/security/actor regressions remain unchanged.
 
 ## Known partial / blocked areas
 
-- Native `KProxyManager` / cross-server forwarding remains blocked until its socket/session ownership is converted.
+- Native `KProxyManager` / cross-server forwarding remains blocked until socket/session ownership is converted.
 - `PC_CHARACTER` and `PC_ROOM` routing need their native manager contracts.
-- `PC_SERVER` local routing needs `KBaseServer` performer registration.
-- Full Login role-specific opcode dispatch is **blocked** until the typed event-payload/serializer contract exists.
-- `KEvent::SetData<T>` remains blocked until its strongly typed payload contract is established from real callers.
-- Native conditional build-profile selection is still not bound to an effective managed runtime profile.
+- `PC_SERVER` local routing needs the managed `KBaseServer` performer-registration equivalent.
+- Concrete Login opcode dispatch is blocked until typed event-payload contracts exist.
+- `KEvent::SetData<T>` generic payload serialization remains blocked until a strongly typed payload contract is established from real callers.
+- Native conditional build-profile selection is not bound to an effective managed runtime profile.
+- Mail and several external service managers are not yet converted.
 
 ## Next unlock
 
-The highest-leverage next stage is to establish the first **source-proven typed Login event contract** rather than translating the entire Login switch. `DBE_VERIFY_SERVER_CONNECT_ACK` is a candidate only after its packet declaration/serialization and `KBaseServer` performer-registration dependencies are completely traced. `ELG_USER_DISCONNECT_REQ` should not be chosen first because its packet contains routing-dependent state used by the handler and its ACK behavior depends on embedded event semantics.
+The next implementation target remains the first source-proven typed Login event contract, with `DBE_VERIFY_SERVER_CONNECT_ACK` currently the strongest candidate. Before writing its handler, fully trace its concrete packet declaration, serializer mapping, `KBaseServer` performer-registration/ownership, state transition, duplicate UID behavior, caller/callee chain, shutdown behavior, and effective build-profile branches.
