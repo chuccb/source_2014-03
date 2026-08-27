@@ -24,6 +24,7 @@ static class Program
         await ActorManagerRegression.PreservesNativeInsertionOrder();
         await ActorManagerRegression.TickUsesStableSnapshot();
         await ActorManagerRegression.UpdateUidMatchesNativeDuplicateFailure();
+        await ActorManagerRegression.GetsMinimumUidLikeNativeMapBegin();
         await PerformerRoutingPreservesLegacyDispatchSemantics();
         LoginDispatchRegression.RejectsUnprovenLoginPayloads();
         Console.WriteLine("All KncWX2Server core regression checks passed.");
