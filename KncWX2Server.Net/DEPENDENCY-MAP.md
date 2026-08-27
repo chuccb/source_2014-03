@@ -56,7 +56,8 @@ ServerActorManager
              │         └─ KBaseServer::SetServerInfo field application
              │
              ├─ server-level performer routing
-             │    └─ PC_SERVER → registered ServerPerformer queue
+             │    ├─ ServerRolePerformer role → authoritative PC_SERVER performer ID
+             │    └─ ServerPerformerManager.RegisterRole()
              │
              ├───────────────┐
              ▼               ▼
@@ -108,13 +109,26 @@ Private-IP and server-role fields are feature-gated in the native declaration an
 ## Managed server identity implementation
 
 - `Common/ServerInfo.cs`: source-proven managed representation of the common `KServerInfo` fields; native `int` stays `int`, native `u_short` stays `ushort`, and server class is an `int`-backed enum matching native values.
-- `Common/ServerIdentity.cs`: mutable local server identity state with explicit field application and no socket/network ownership.
+- `Common/ServerIdentity.cs`: mutable local identity state corresponding to the field-application portion of `KBaseServer::SetServerInfo()`; it deliberately has no socket/UDP ownership.
+
+This is a domain/state boundary, not a packet serializer. No wire-format claim is made for `ServerInfo` until its concrete packet serializer path is migrated.
 
 ## Server-level performer routing
 
-Native `KLoginUser::RoutePacket()` first compares destination server level. For a same-level destination with performer class `PC_SERVER`, it clones the event, pushes the current user UID into the trace, and calls `KBaseServer::GetKObj()->QueueingEvent()`. This is a server-level performer queue, not a user actor lookup.
+Native `KPerformer` owns a thread-safe FIFO event queue and consumes the queue in `Tick()`. It has no socket ownership itself. `KBaseServer` derives directly from `KPerformer`, so server-level events are performer events, distinct from the per-connection `KActor` objects. The managed `ServerPerformer` models this queue/processor boundary without owning sockets. fileciteturn723file0L2-L10 fileciteturn724file0L2-L2
 
-The managed router now maps `PC_SERVER` to `ServerPerformerManager.QueueingTo()`. A regression registers the authoritative `LoginServer` performer ID and verifies the event is queued and processed locally. The route layer remains separate from concrete Login opcode dispatch.
+Native `KLoginUser::RoutePacket()` compares server level first. For a same-level `PC_SERVER` destination it clones the event, pushes the LoginUser UID into the trace, and queues the event directly to `KBaseServer::GetKObj()`. This is not a user-actor lookup. fileciteturn675file0L2-L2
+
+The managed `ServerEventRouter` now recognizes `PC_SERVER` as a first-class local performer class and queues it through `ServerPerformerManager`. fileciteturn703file0L2-L6
+
+`ServerRolePerformer` centralizes the source-proven mapping:
+
+- `ServerRole.Login → PerformerId.LoginServer`
+- `ServerRole.Center → PerformerId.CnServer`
+- `ServerRole.Channel → PerformerId.ChannelServer`
+- `ServerRole.Game → PerformerId.GsServer`
+
+No numeric values are duplicated outside the authoritative `PerformerId` enum. The manager now exposes `RegisterRole(role, processor)` so role-specific callers can register a server-level performer without duplicating the mapping; it still requires a real event processor and therefore does not create a fake handler. fileciteturn748file0L2-L6 fileciteturn747file0L2-L6
 
 ## Actor/event source cross-check
 
@@ -137,7 +151,8 @@ Important native semantics preserved:
 - `Common/Routing/PerformerRouting.cs`: authoritative performer/server bitfield constants.
 - `Common/Routing/PerformerIds.cs`: authoritative combined performer IDs.
 - `Common/ServerPerformer.cs`: FIFO internal performer queue without socket ownership.
-- `Common/ServerPerformerManager.cs`: ordered internal performer registry and tick processing.
+- `Common/ServerPerformerManager.cs`: ordered internal performer registry, queue dispatch, and role registration helper.
+- `Common/ServerRolePerformer.cs`: source-proven `ServerRole` → `PerformerId` mapping.
 - `Common/ServerEventRouter.cs`: local routing with explicit remote/unsupported results, including local `PC_SERVER` performer queueing.
 
 ## Login role dispatch audit
@@ -145,7 +160,7 @@ Important native semantics preserved:
 The native Login role is split across two distinct performers:
 
 ```text
-KLoginServer : KBaseServer
+KLoginServer : KBaseServer : KPerformer
   ├─ Init()
   │    ├─ KLoginSimLayer
   │    ├─ KLoginNetLayer
@@ -174,10 +189,11 @@ The managed Login stage has an explicit `LoginEventDispatcher` boundary. It clas
 - `ServerActorManager` owns active actor identity/order; its list corresponds to native `m_vecAct` while its dictionary provides UID lookup.
 - `ServerActorManager.TickAsync()` uses a per-call pooled snapshot, so concurrent invocation cannot corrupt a shared reusable snapshot; only the caller's snapshot is processed.
 - `ServerPerformer` owns internal event processing state and never owns a socket.
-- `ServerPerformerManager` preserves explicit registration order for deterministic ticks.
+- `ServerPerformerManager` preserves explicit registration order for deterministic ticks; role registration is initialization-time wiring and does not allocate a runtime DI container.
 - `ServerEventRouter` only routes/enqueues; processing remains on the corresponding actor/internal-performer loop.
 - `KncServerSession` owns one socket/security/lifetime domain; cancellation closes session resources.
 - `ServerIdentity` owns only local server metadata and does not own `KnetLayer`/socket/UDP resources.
+- Native `KBaseServer::ShutDown()` still has broader layer/DB/socket teardown ordering than the managed identity/performer boundary; that lifecycle remains unported.
 
 ## Performer ID / ABI
 
@@ -186,8 +202,7 @@ Native performer IDs are `DWORD` bitfields; managed routing uses `uint`.
 - performer mask `0x000000FF`
 - server class mask `0x00000F00`
 - send type mask `0x0000F000`
-- server classes `SC_CLIENT` through `SC_GLOBAL`
-- verified performer classes, including `PC_GAME_DB_2ND` / `PC_LOG_DB_2ND`
+- role-level server performers are represented by authoritative `PerformerId.*Server` members.
 
 Native actor `UidType` is `__int64`, represented by managed `long` in the actor/event layer.
 Native `KServerInfo::m_iUID` is a separate 32-bit `int` identity field and is therefore represented by managed `int` in `ServerInfo` / `ServerIdentity`.
@@ -219,6 +234,7 @@ Native `KServerInfo::m_iUID` is a separate 32-bit `int` identity field and is th
 - native `GetFirstActorKey` minimum-UID semantics
 - performer routing
 - local Login server-level (`PC_SERVER`) performer routing
+- server role → native server performer mapping and registration lifecycle
 - Login typed-payload boundary
 - `KServerInfo` field application into managed server identity state
 
@@ -227,6 +243,7 @@ Native `KServerInfo::m_iUID` is a separate 32-bit `int` identity field and is th
 - Native `KProxyManager` / cross-server forwarding remains blocked until socket/session ownership is converted.
 - `PC_CHARACTER` and `PC_ROOM` routing need the native manager contracts.
 - `KBaseServer::SetServerInfo()` network-layer side effects (`SetPort`, `InitNCUDP`) remain blocked until the managed network layer owns those resources.
+- Full managed host integration of the server-level performer remains partial because concrete role-specific server event processing is not yet converted.
 - Concrete Login opcode dispatch is blocked until typed event-payload contracts exist.
 - `KEvent::SetData<T>` generic payload serialization remains blocked until a strongly typed payload contract is established from real callers.
 - Native conditional build-profile selection is not bound to an effective managed runtime profile.
@@ -234,4 +251,4 @@ Native `KServerInfo::m_iUID` is a separate 32-bit `int` identity field and is th
 
 ## Next unlock
 
-**Continue `KBaseServer` lifecycle/registration integration:** connect the local server-level performer queue to the actual managed host lifecycle and server identity without claiming native network-layer side effects. Then resume `DBE_VERIFY_SERVER_CONNECT_ACK` once its exact packet declaration + serializer mapping and state transition are source-proven.
+**Bind the source-proven server-level performer registration to the actual role host initialization/shutdown boundary without inventing a role event processor.** After that, resume `DBE_VERIFY_SERVER_CONNECT_ACK` by resolving its exact concrete packet declaration + serializer mapping + authenticated-state transition.
