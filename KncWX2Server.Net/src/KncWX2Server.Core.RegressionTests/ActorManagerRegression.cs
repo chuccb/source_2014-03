@@ -30,7 +30,7 @@ static class ActorManagerRegression
         var manager = new ServerActorManager();
         var created = false;
 
-        async ValueTask ProcessAsync(ServerActor actor, KEvent _)
+        ValueTask ProcessAsync(ServerActor actor, KEvent _)
         {
             processed.Add(actor.Id);
             if (actor.Id == 1 && !created)
@@ -39,7 +39,7 @@ static class ActorManagerRegression
                 manager.Create(3, ProcessAsync);
             }
 
-            await ValueTask.CompletedTask;
+            return ValueTask.CompletedTask;
         }
 
         var first = manager.Create(1, ProcessAsync);
