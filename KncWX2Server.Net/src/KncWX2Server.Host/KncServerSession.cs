@@ -61,13 +61,22 @@ public sealed class KncServerSession
 
             var receiveTask = RunReceiveLoopAsync(token);
             var heartbeatTask = MonitorHeartbeatAsync(token);
+            var completedTask = await Task.WhenAny(receiveTask, heartbeatTask).ConfigureAwait(false);
+            _sessionCancellation.Cancel();
+
             try
             {
-                await Task.WhenAll(receiveTask, heartbeatTask).ConfigureAwait(false);
+                await completedTask.ConfigureAwait(false);
             }
             finally
             {
-                _sessionCancellation.Cancel();
+                try
+                {
+                    await Task.WhenAll(receiveTask, heartbeatTask).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (_sessionCancellation.IsCancellationRequested)
+                {
+                }
             }
         }
         catch (OperationCanceledException) when (_sessionCancellation.IsCancellationRequested)
@@ -179,6 +188,7 @@ public sealed class KncServerSession
             var secureBytes = await KncProtocol.ReadSecureFrameAsync(
                 _stream,
                 _frameHeader,
+                _options.MaxFrameSize,
                 cancellationToken).ConfigureAwait(false);
 
             var secure = new SecureBuffer(_spi, secureBytes, _security);
