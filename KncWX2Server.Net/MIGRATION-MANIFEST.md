@@ -39,6 +39,11 @@ ServerActorManager
         ├─ source-proven native UpdateUID semantics
         └─ GetFirstActorKey() → minimum registered UID
         ↓
+Server identity boundary
+        ├─ ServerInfo
+        └─ ServerIdentity
+             └─ KBaseServer::SetServerInfo field application
+        ↓
 ServerEventRouter
         ├─ local user actor routing
         ├─ local internal-performer routing
@@ -54,6 +59,32 @@ Role-specific dispatch
         ↓
 Persistence / external services
 ```
+
+## Server identity boundary
+
+The native `KServerInfo` declaration was re-audited in `Common/ServerPacket.h`, with the related `KNetAddress` declaration in `Common/CommonPacket.h`, and `KBaseServer::SetServerInfo()` in `Common/BaseServer.cpp`.
+
+Common `KServerInfo` fields are source-proven as:
+
+- `int m_iUID`
+- `std::wstring m_wstrName`
+- `int m_iServerGroupID`
+- `int m_iServerClass`
+- `std::wstring m_wstrIP` for the non-private-networking build
+- `u_short m_usMasterPort`
+- `u_short m_usNCUDPPort`
+- `int m_nMaxUser`
+- `int m_nCurrentUser`
+- `bool m_bOn`
+
+Native `KBaseServer::SetServerInfo()` applies UID, name, server group, server class, networking addresses, max-user configuration and network-layer ports. The managed stage currently ports the pure identity/data portion only. `KNetLayer::SetPort()` and `InitNCUDP()` remain outside this boundary because their socket/UDP ownership has not yet been migrated.
+
+Managed implementation:
+
+- `Common/ServerInfo.cs`: exact common data contract; native `int` stays `int`, native `u_short` stays `ushort`, and `ServerClassId` is an `int`-backed enum matching native `EServerClass` values.
+- `Common/ServerIdentity.cs`: mutable local server identity state with explicit field application and no socket/network ownership.
+
+This is intentionally a domain model, not a claim that `KServerInfo` wire serialization is already complete.
 
 ## Actor/event source cross-check
 
@@ -79,29 +110,6 @@ Important native semantics preserved:
 - `Common/ServerPerformerManager.cs`: ordered internal performer registry and tick processing.
 - `Common/ServerEventRouter.cs`: local routing with explicit remote/unsupported results.
 
-## Actor UID correction
-
-The audit found a concrete conversion mismatch in `ServerActorManager.UpdateUid()`.
-
-Native `KActorManager::UpdateUID()` does **not** preflight duplicate target UIDs. It removes the existing actor mapping, sets the actor's UID to the requested value, then calls `map.insert`; a duplicate target therefore returns `false` while leaving the actor mutated and the pre-existing target mapping intact.
-
-The managed implementation now preserves that observable failure behavior. A regression verifies:
-
-- duplicate target reports failure;
-- actor UID has already changed;
-- old UID mapping is gone;
-- existing target mapping remains authoritative.
-
-This is intentionally not "fixed" into cleaner semantics because compatibility with the native behavior is the migration source of truth.
-
-## First actor key correction
-
-Native `KActorManager::GetFirstActorKey()` returns the first key from `std::map<UidType, KActorPtr>`, which is the numerically smallest registered UID. It does not use `m_vecAct` insertion order.
-
-The managed `ServerActorManager` now exposes `GetFirstActorKey()` with the same empty-map result (`0`) and minimum-UID semantics. A regression compares it against the minimum of two actual registered temporary UIDs.
-
-Because the managed UID index remains a `Dictionary<long, ServerActor>` for O(1) normal lookup, the minimum-key operation scans the registered keys under the existing manager gate. This is a deliberate localized tradeoff: it preserves the native observable result without replacing the primary hot-path lookup structure with a tree solely for this infrequent operation.
-
 ## Login role dispatch audit
 
 Native Login is divided into `KLoginServer : KBaseServer` and per-connection `KLoginUser : KActor`.
@@ -111,12 +119,13 @@ Native Login is divided into `KLoginServer : KBaseServer` and per-connection `KL
 - `_CASE` deserializes a concrete `K<event>` payload with `KSerializer`, calls `ON_<event>(trace, packet)`, then resets the event buffer.
 - `DBE_VERIFY_SERVER_CONNECT_ACK` mutates identity/state and depends on BaseServer registration, duplicate UID behavior, and build-profile branches.
 
-Managed Login therefore still exposes only the explicit `LoginEventDispatcher` boundary until a complete packet declaration/serializer contract is source-proven.
+Managed Login still exposes only the explicit `LoginEventDispatcher` boundary until a complete packet declaration/serializer contract is source-proven.
 
 ## Protocol / ABI
 
 - Performer IDs are `DWORD` bitfields and managed routing uses `uint`.
-- `UidType` is native `__int64` and managed `long`.
+- Actor `UidType` is native `__int64` and managed `long`.
+- `KServerInfo::m_iUID` is a separate native 32-bit `int` identity field and managed `ServerInfo.Uid` is therefore `int`.
 - Outer TCP framing remains `[TotalLength:u16 LE, inclusive] + SecureBuffer`.
 - Numeric serializer/network primitive endian rules and SecureBuffer security semantics remain unchanged.
 - Concrete Login typed payloads remain blocked until their exact declaration and serialization path are established.
@@ -140,12 +149,11 @@ Existing regressions remain enabled for:
 - native `GetFirstActorKey` minimum-UID semantics
 - performer routing
 - Login typed-payload boundary
+- `KServerInfo` field application into managed server identity state
 
 ## Build verification
 
 GitHub Actions is the authoritative CI environment for this repository. Local `.NET` SDK execution is unavailable in the current container, so no local NativeAOT success is claimed.
-
-The last known successful workflow for the migration branch was run at commit `0f730979285206be6c2af4a46e78aa4dab60f299`; subsequent changes still require CI validation.
 
 ## Status
 
@@ -157,19 +165,21 @@ The last known successful workflow for the migration branch was run at commit `0
 - Performer routing source-of-truth cleanup: completed
 - Actor `UpdateUID` native behavior correction: completed
 - Actor `GetFirstActorKey` native behavior correction: ported
+- `KServerInfo` / `ServerIdentity` data boundary: ported-partial
 - Login dispatch boundary: ported-partial
 - Login role-specific opcode handlers: blocked
 
 ## Known partial / blocked areas
 
-- Native proxy/remote forwarding is not yet implemented because `KProxyManager` / cross-server transport ownership has not been converted.
+- Native `KProxyManager` / cross-server forwarding remains blocked until socket/session ownership is converted.
 - `PC_CHARACTER` / room routing still requires the native manager contracts.
 - `PC_SERVER` local BaseServer routing still requires the managed equivalent of native `KBaseServer` performer registration.
-- Login concrete opcode dispatch is blocked until typed event-payload contracts exist.
-- `KEvent::SetData<T>` generic payload serialization remains blocked until its strongly typed payload contract is established from real callers.
-- Native conditional build-profile selection is still not bound to an effective managed runtime profile.
+- `KBaseServer::SetServerInfo()` network side effects (`KNetLayer::SetPort`, `InitNCUDP`) remain blocked until the managed network layer owns those resources.
+- Concrete Login opcode dispatch is blocked until typed event-payload contracts exist.
+- `KEvent::SetData<T>` generic payload serialization remains blocked until a strongly typed payload contract is established from real callers.
+- Native conditional build-profile selection is not bound to an effective managed runtime profile.
 - Mail and several external service managers are not yet converted.
 
 ## Next subsystem
 
-**Source-proven Login UID migration path:** continue from `DBE_VERIFY_SERVER_CONNECT_ACK`, first completing the concrete packet declaration + serializer mapping and the `KBaseServer` registration/ownership path, then port the authenticated-state transition and duplicate UID error behavior.
+**Continue the source-proven `KBaseServer` registration boundary:** connect the newly ported `ServerIdentity` to the managed server-level performer/host lifecycle without claiming the unconverted network-layer side effects. Then resume `DBE_VERIFY_SERVER_CONNECT_ACK` only after its exact concrete packet declaration + serializer mapping are fully established.
