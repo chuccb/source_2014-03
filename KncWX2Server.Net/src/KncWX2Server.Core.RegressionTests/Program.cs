@@ -26,6 +26,7 @@ static class Program
         await ActorManagerRegression.UpdateUidMatchesNativeDuplicateFailure();
         await ActorManagerRegression.GetsMinimumUidLikeNativeMapBegin();
         await PerformerRoutingPreservesLegacyDispatchSemantics();
+        await ServerRolePerformerRegression.MapsRolesToNativeServerPerformers();
         LoginDispatchRegression.RejectsUnprovenLoginPayloads();
         ServerIdentityRegression.AppliesNativeKServerInfoFields();
         ServerListRegression.ReplacesAndSnapshotsServerGroups();
