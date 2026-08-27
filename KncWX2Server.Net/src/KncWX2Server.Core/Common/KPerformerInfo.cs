@@ -4,7 +4,7 @@ namespace KncWX2Server.Core.Common;
 
 public sealed class KPerformerInfo
 {
-    public const int MaxUidCount = 100;
+    public const int MaxUidCount = 2000;
 
     public uint PerformerId { get; set; }
     public SortedSet<long> Uids { get; } = [];
