@@ -17,6 +17,17 @@ public sealed class ServerPerformerManager
         return true;
     }
 
+    public ServerPerformer? RegisterRole(
+        ServerRole role,
+        Func<ServerPerformer, KEvent, ValueTask> eventProcessor)
+    {
+        var performer = new ServerPerformer(
+            ServerRolePerformer.GetPerformerId(role),
+            eventProcessor);
+
+        return Register(performer) ? performer : null;
+    }
+
     public bool Remove(uint performerId)
     {
         if (!_performersById.Remove(performerId, out var performer))
