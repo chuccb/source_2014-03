@@ -3,15 +3,12 @@ using System.Security.Cryptography;
 
 namespace KncWX2Server.Core.Common.Security;
 
-/// <summary>
-/// Managed equivalent of legacy KSecureBuffer.
-/// TCP uses the no-replay-window sequence validation path from the 2014 source.
-/// </summary>
+/// <summary>Managed equivalent of legacy KSecureBuffer.</summary>
 public sealed class SecureBuffer
 {
     private readonly SecurityAssociationDatabase _database;
     private byte[] _buffer = [];
-    private ushort _spi;
+    private readonly ushort _spi;
 
     public SecureBuffer(ushort spi, SecurityAssociationDatabase database)
     {
@@ -50,15 +47,18 @@ public sealed class SecureBuffer
         var iv = GenerateIv(SecurityAssociation.IvSize);
         var crypt = association.Encrypt(plain, iv);
 
-        var secureWithoutIcv = new byte[checked(sizeof(ushort) + sizeof(uint) + iv.Length + crypt.Length)];
-        BinaryPrimitives.WriteUInt16LittleEndian(secureWithoutIcv, _spi);
-        BinaryPrimitives.WriteUInt32LittleEndian(secureWithoutIcv.AsSpan(sizeof(ushort)), association.SequenceNumber);
-        iv.CopyTo(secureWithoutIcv.AsSpan(sizeof(ushort) + sizeof(uint)));
-        crypt.CopyTo(secureWithoutIcv.AsSpan(sizeof(ushort) + sizeof(uint) + iv.Length));
+        var headerAndCrypt = new byte[checked(sizeof(ushort) + sizeof(uint) + iv.Length + crypt.Length)];
+        BinaryPrimitives.WriteUInt16LittleEndian(headerAndCrypt, _spi);
+        BinaryPrimitives.WriteUInt32LittleEndian(headerAndCrypt.AsSpan(sizeof(ushort)), association.SequenceNumber);
+        iv.CopyTo(headerAndCrypt.AsSpan(sizeof(ushort) + sizeof(uint)));
+        crypt.CopyTo(headerAndCrypt.AsSpan(sizeof(ushort) + sizeof(uint) + iv.Length));
 
-        var icv = association.GenerateIcv(secureWithoutIcv);
-        _buffer = [.. secureWithoutIcv, .. icv];
+        var packet = new byte[checked(headerAndCrypt.Length + SecurityAssociation.IcvSize)];
+        headerAndCrypt.CopyTo(packet);
+        if (!association.TryGenerateIcv(headerAndCrypt, packet.AsSpan(headerAndCrypt.Length)))
+            return false;
 
+        _buffer = packet;
         if (incrementSequence)
             association.IncrementSequenceNumber();
 
@@ -147,6 +147,9 @@ public sealed class SecureBuffer
             return false;
 
         var cryptLength = _buffer.Length - cryptOffset - SecurityAssociation.IcvSize;
+        if (cryptLength == 0 || (cryptLength & (SecurityAssociation.BlockSize - 1)) != 0)
+            return false;
+
         var crypt = _buffer.AsSpan(cryptOffset, cryptLength);
         var decrypted = association.Decrypt(crypt, iv);
         if (decrypted.Length == 0 || !TryRemovePadding(decrypted, out var actualLength))
@@ -161,7 +164,8 @@ public sealed class SecureBuffer
         if (_buffer.Length < sizeof(ushort))
             return false;
 
-        // The legacy implementation reads the packet SPI but validates the Session's expected SPI.
+        // The legacy implementation validates the Session's expected SPI,
+        // not the wire SPI value, because sender/receiver SPIs may differ.
         _ = BinaryPrimitives.ReadUInt16LittleEndian(_buffer);
         return _database.Find(_spi);
     }
@@ -179,9 +183,12 @@ public sealed class SecureBuffer
             return false;
 
         var icvOffset = _buffer.Length - SecurityAssociation.IcvSize;
-        var expected = association.GenerateIcv(_buffer.AsSpan(0, icvOffset));
-        var actual = _buffer.AsSpan(icvOffset, SecurityAssociation.IcvSize);
-        return CryptographicOperations.FixedTimeEquals(actual, expected);
+        Span<byte> expected = stackalloc byte[SecurityAssociation.IcvSize];
+        if (!association.TryGenerateIcv(_buffer.AsSpan(0, icvOffset), expected))
+            return false;
+
+        return CryptographicOperations.FixedTimeEquals(
+            _buffer.AsSpan(icvOffset, SecurityAssociation.IcvSize), expected);
     }
 
     private uint ReadSequenceNumber() =>
@@ -192,7 +199,6 @@ public sealed class SecureBuffer
     private static byte[] GenerateIv(int length)
     {
         var iv = new byte[length];
-        Random.Shared.NextBytes(iv);
         for (var i = 0; i < iv.Length; i++)
             iv[i] = (byte)('A' + Random.Shared.Next(0, 40));
         return iv;
@@ -200,11 +206,9 @@ public sealed class SecureBuffer
 
     private static byte[] GeneratePadding(int payloadLength)
     {
-        var nPadBytes = SecurityAssociation.BlockSize - ((payloadLength + 1) % SecurityAssociation.BlockSize);
-        // The 2014 source currently has nRand == 0, so no extra random blocks are appended.
-        nPadBytes += SecurityAssociation.BlockSize * 0;
-
-        var padding = new byte[nPadBytes];
+        var padLength = SecurityAssociation.BlockSize - ((payloadLength + 1) % SecurityAssociation.BlockSize);
+        // The active legacy source sets nRand to zero, so no extra block is added.
+        var padding = new byte[padLength];
         for (var i = 0; i < padding.Length; i++)
             padding[i] = checked((byte)(i + 1));
         return padding;
@@ -222,8 +226,10 @@ public sealed class SecureBuffer
 
         var padStart = payload.Length - padLength - 1;
         for (var i = 0; i < padLength; i++)
+        {
             if (payload[padStart + i] != i + 1)
                 return false;
+        }
 
         actualLength = padStart;
         return true;
