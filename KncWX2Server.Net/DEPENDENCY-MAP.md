@@ -46,6 +46,7 @@ ServerActorManager
   ├─ UID lookup dictionary
   ├─ deferred add
   ├─ deferred delete
+  ├─ pooled tick snapshot (ArrayPool<ServerActor>)
   └─ Tick order: actors -> delete -> add
              │
              ├───────────────┐
@@ -65,6 +66,12 @@ ServerActorManager
                      ▼
               service managers / persistence
 ```
+
+## Current implementation correction: actor tick snapshot
+
+`ServerActorManager.TickAsync()` preserves the native ordering semantics while avoiding a managed array allocation on every tick. The prior collection-expression snapshot created a fresh `ServerActor[]` for every 1 ms tick. The implementation now rents the snapshot from `ArrayPool<ServerActor>.Shared`, copies the current actor vector under `_gate`, processes exactly that snapshot, then returns the array in `finally` with reference clearing.
+
+The snapshot boundary is intentional: actors added during a tick are not processed until the next tick, and actors deferred for deletion remain part of the current tick snapshot, matching the existing vector-first/deferred-lifecycle model.
 
 ## Login role dispatch audit
 
@@ -149,6 +156,7 @@ The authoritative definitions are:
 ## Ownership / lifetime / threading
 
 - `ServerActorManager` owns active actor identity/order; its list corresponds to native `m_vecAct` while its dictionary provides UID lookup.
+- `ServerActorManager.TickAsync()` uses a per-call pooled snapshot, so concurrent invocation cannot corrupt a shared reusable snapshot; only the caller's snapshot is processed.
 - `ServerPerformer` owns internal event processing state and never owns a socket.
 - `ServerPerformerManager` preserves explicit registration order for deterministic ticks.
 - `ServerEventRouter` only routes/enqueues; processing remains on the corresponding actor/internal-performer loop.
@@ -172,6 +180,7 @@ Native `UidType` is `__int64`, represented by managed `long` in the current even
 - Outer TCP frame remains `[TotalLength:u16 LE, inclusive] + SecureBuffer`.
 - Native KEvent field order remains destination performer info, trace[2], event id, then serialized payload buffer (plus feature-gated source metadata when active).
 - `KEvent::SetData<T>` / `_CASE` remain blocked from a concrete managed Login payload implementation until packet declaration and serializer evidence are complete.
+- `KSerializer` explicitly encodes numeric primitives in network byte order and Win32 `wchar_t` code units as 2-byte UTF-16LE on the target platform; WString has an existing regression.
 
 ## Regression coverage
 
@@ -179,8 +188,7 @@ Native `UidType` is `__int64`, represented by managed `long` in the current even
 
 - Login-user destination enters the explicit `TypedPayloadContractMissing` boundary.
 - Non-Login destinations do not enter Login role dispatch.
-
-Existing routing/serializer/security/actor regressions remain unchanged.
+- Existing actor lifecycle/ordering, serializer, UTF-16LE, compression, KEvent, frame, security and replay regressions remain enabled.
 
 ## Known partial / blocked areas
 
