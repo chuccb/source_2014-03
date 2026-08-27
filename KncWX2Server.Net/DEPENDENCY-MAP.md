@@ -55,6 +55,9 @@ ServerActorManager
              │    └─ ServerIdentity
              │         └─ KBaseServer::SetServerInfo field application
              │
+             ├─ server-level performer routing
+             │    └─ PC_SERVER → registered ServerPerformer queue
+             │
              ├───────────────┐
              ▼               ▼
        ServerEventRouter   Role-specific dispatch
@@ -65,6 +68,7 @@ ServerActorManager
              │               └─ Game
              │
              ├─ local PC_USER → actor manager
+             ├─ local PC_SERVER → server-level performer manager
              ├─ local DB/Log performers → internal performer manager
              ├─ lower-server traced route → local actor when present
              └─ remote/proxy-required route → explicit blocked result
@@ -99,14 +103,18 @@ Native sources re-checked for the current identity boundary:
 
 Private-IP and server-role fields are feature-gated in the native declaration and are not claimed as active managed runtime fields until the effective build profile is bound.
 
-`KBaseServer::SetServerInfo()` applies the identity fields to the local server, and additionally configures the native `KNetLayer` master/UDP ports. The managed stage intentionally separates the pure identity state from those still-unconverted network-layer side effects.
+`KBaseServer::SetServerInfo()` applies the identity fields to the local server, and additionally configures the native `KNetLayer` master/UDP ports. The managed stage currently ports the pure identity/data portion only. `KNetLayer::SetPort()` and `InitNCUDP()` remain outside this boundary because their socket/UDP ownership has not yet been migrated.
 
 ## Managed server identity implementation
 
-- `Common/ServerInfo.cs`: source-proven managed representation of the common `KServerInfo` fields; native `int` fields remain `int`, native `u_short` fields remain `ushort`, and server class is a strongly typed `int`-backed enum.
-- `Common/ServerIdentity.cs`: mutable local identity state corresponding to the field-application portion of `KBaseServer::SetServerInfo()`; it deliberately has no socket/UDP ownership.
+- `Common/ServerInfo.cs`: source-proven managed representation of the common `KServerInfo` fields; native `int` stays `int`, native `u_short` stays `ushort`, and server class is an `int`-backed enum matching native values.
+- `Common/ServerIdentity.cs`: mutable local server identity state with explicit field application and no socket/network ownership.
 
-This is a domain/state boundary, not a packet serializer. No wire-format claim is made for `ServerInfo` until its concrete packet serializer path is migrated.
+## Server-level performer routing
+
+Native `KLoginUser::RoutePacket()` first compares destination server level. For a same-level destination with performer class `PC_SERVER`, it clones the event, pushes the current user UID into the trace, and calls `KBaseServer::GetKObj()->QueueingEvent()`. This is a server-level performer queue, not a user actor lookup.
+
+The managed router now maps `PC_SERVER` to `ServerPerformerManager.QueueingTo()`. A regression registers the authoritative `LoginServer` performer ID and verifies the event is queued and processed locally. The route layer remains separate from concrete Login opcode dispatch.
 
 ## Actor/event source cross-check
 
@@ -130,7 +138,7 @@ Important native semantics preserved:
 - `Common/Routing/PerformerIds.cs`: authoritative combined performer IDs.
 - `Common/ServerPerformer.cs`: FIFO internal performer queue without socket ownership.
 - `Common/ServerPerformerManager.cs`: ordered internal performer registry and tick processing.
-- `Common/ServerEventRouter.cs`: local routing with explicit remote/unsupported results.
+- `Common/ServerEventRouter.cs`: local routing with explicit remote/unsupported results, including local `PC_SERVER` performer queueing.
 
 ## Login role dispatch audit
 
@@ -210,6 +218,7 @@ Native `KServerInfo::m_iUID` is a separate 32-bit `int` identity field and is th
 - native `UpdateUID` duplicate failure semantics
 - native `GetFirstActorKey` minimum-UID semantics
 - performer routing
+- local Login server-level (`PC_SERVER`) performer routing
 - Login typed-payload boundary
 - `KServerInfo` field application into managed server identity state
 
@@ -217,8 +226,7 @@ Native `KServerInfo::m_iUID` is a separate 32-bit `int` identity field and is th
 
 - Native `KProxyManager` / cross-server forwarding remains blocked until socket/session ownership is converted.
 - `PC_CHARACTER` and `PC_ROOM` routing need the native manager contracts.
-- `PC_SERVER` local routing needs the managed `KBaseServer` performer-registration equivalent.
-- `KBaseServer` network-layer side effects from `SetServerInfo()` (`SetPort`, `InitNCUDP`) remain blocked until the managed network layer owns those resources.
+- `KBaseServer::SetServerInfo()` network-layer side effects (`SetPort`, `InitNCUDP`) remain blocked until the managed network layer owns those resources.
 - Concrete Login opcode dispatch is blocked until typed event-payload contracts exist.
 - `KEvent::SetData<T>` generic payload serialization remains blocked until a strongly typed payload contract is established from real callers.
 - Native conditional build-profile selection is not bound to an effective managed runtime profile.
@@ -226,4 +234,4 @@ Native `KServerInfo::m_iUID` is a separate 32-bit `int` identity field and is th
 
 ## Next unlock
 
-**Finish the source-proven `KBaseServer` registration boundary:** connect `ServerIdentity` to the managed server-level performer/host lifecycle without claiming the unconverted native network-layer side effects. Then resume `DBE_VERIFY_SERVER_CONNECT_ACK` by resolving its exact packet declaration + serializer mapping and authenticated-state transition.
+**Continue `KBaseServer` lifecycle/registration integration:** connect the local server-level performer queue to the actual managed host lifecycle and server identity without claiming native network-layer side effects. Then resume `DBE_VERIFY_SERVER_CONNECT_ACK` once its exact packet declaration + serializer mapping and state transition are source-proven.
