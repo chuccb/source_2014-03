@@ -7,7 +7,7 @@ using KncWX2Server.Core.Common.Serialization;
 
 static class Program
 {
-    public static int Main()
+    public static async Task<int> Main()
     {
         SerializerUsesLegacyNetworkByteOrder();
         SerializerUsesWin32Utf16LeWStringBytes();
@@ -18,6 +18,7 @@ static class Program
         SecureBufferRoundTripsAndAuthenticates();
         SecureBufferRejectsTamperingAndDuplicates();
         ReplayWindowMatchesLegacySemantics();
+        await ActorQueueAndDeferredManagerLifecycle();
         Console.WriteLine("All KncWX2Server core regression checks passed.");
         return 0;
     }
@@ -200,6 +201,47 @@ static class Program
         Check(association.IsValidSequenceNumber(3), "another sequence inside window is valid");
         association.UpdateReplayWindow(3);
         Check(!association.IsValidSequenceNumber(0), "zero sequence rejected");
+    }
+
+    private static async Task ActorQueueAndDeferredManagerLifecycle()
+    {
+        var processed = new List<ushort>();
+        var manager = new ServerActorManager();
+        var actor = manager.Create(
+            42,
+            (_, @event) =>
+            {
+                processed.Add(@event.EventId);
+                return ValueTask.CompletedTask;
+            });
+
+        var first = new KEvent();
+        first.SetData(0, ReadOnlySpan<long>.Empty, 10);
+        var second = new KEvent();
+        second.SetData(0, ReadOnlySpan<long>.Empty, 20);
+        actor.QueueingEvent(first);
+        actor.QueueingEvent(second);
+
+        Check(manager.Count == 0, "actor add is deferred");
+        await manager.TickAsync();
+        Check(manager.Count == 1, "actor registered after tick");
+        Check(actor.Uid != 0 && (actor.Uid & 0x4000000000000000L) != 0, "temporary UID marker");
+        Check(processed.Count == 0, "new actor not processed in insertion tick");
+
+        await manager.TickAsync();
+        Check(processed.Count == 2 && processed[0] == 10 && processed[1] == 20, "FIFO actor event processing");
+
+        manager.ReserveDelete(actor);
+        Check(manager.Count == 1, "actor deletion is deferred");
+        await manager.TickAsync();
+        Check(manager.Count == 0, "actor removed after tick");
+
+        var disconnectedBeforeAdd = manager.Create(
+            43,
+            static (_, _) => ValueTask.CompletedTask);
+        manager.ReserveDelete(disconnectedBeforeAdd);
+        await manager.TickAsync();
+        Check(manager.Count == 0, "pre-add actor cancellation leaves no ghost actor");
     }
 
     private static void AssertSequence(ReadOnlySpan<byte> expected, ReadOnlySpan<byte> actual, string name)
