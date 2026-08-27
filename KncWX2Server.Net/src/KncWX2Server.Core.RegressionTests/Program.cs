@@ -84,9 +84,11 @@ static class Program
     private static void SecureBufferRoundTripsAndAuthenticates()
     {
         var senderDatabase = new SecurityAssociationDatabase();
-        var association = senderDatabase.CreateNew(out var spi);
+        var senderAssociation = senderDatabase.CreateNew(out var spi);
         var receiverDatabase = new SecurityAssociationDatabase();
-        receiverDatabase.Insert(out var receiverSpi, association);
+        var receiverAssociation = new SecurityAssociation();
+        receiverAssociation.Restore(senderAssociation.Snapshot());
+        receiverDatabase.Insert(out var receiverSpi, receiverAssociation);
         Check(receiverSpi == spi, "share SPI");
 
         var payloadBytes = Encoding.ASCII.GetBytes("legacy security payload");
@@ -108,16 +110,18 @@ static class Program
 
     private static void SecureBufferRejectsTamperingAndDuplicates()
     {
-        var database = new SecurityAssociationDatabase();
-        database.CreateNew(out var spi);
+        var senderDatabase = new SecurityAssociationDatabase();
+        var senderAssociation = senderDatabase.CreateNew(out var spi);
+        var receiverDatabase = new SecurityAssociationDatabase();
+        var receiverAssociation = new SecurityAssociation();
+        receiverAssociation.Restore(senderAssociation.Snapshot());
+        receiverDatabase.Insert(out var receiverSpi, receiverAssociation);
+        Check(receiverSpi == spi, "share no-RWM SPI");
+
         var payload = Encoding.ASCII.GetBytes("authenticated");
-        var sender = new SecureBuffer(spi, database);
+        var sender = new SecureBuffer(spi, senderDatabase);
         Check(sender.CreateNoReplayWindow(payload), "create no-RWM");
         var packet = sender.Data.ToArray();
-
-        var receiverDatabase = new SecurityAssociationDatabase();
-        receiverDatabase.Insert(out var receiverSpi, database.Get(spi));
-        Check(receiverSpi == spi, "share no-RWM SPI");
 
         var receiver = new SecureBuffer(spi, packet, receiverDatabase);
         Check(receiver.IsAuthenticNoReplayWindow(), "no-RWM authentication");
@@ -131,14 +135,14 @@ static class Program
     private static void ReplayWindowMatchesLegacySemantics()
     {
         var association = new SecurityAssociation();
-        Check(association.IsValidSequenceNumber(1), "sequence 1 initially valid");
-        association.UpdateReplayWindow(1);
-        Check(!association.IsValidSequenceNumber(1), "duplicate sequence rejected");
-        Check(association.IsValidSequenceNumber(2), "sequence 2 valid");
-        association.UpdateReplayWindow(2);
-        Check(association.IsValidSequenceNumber(1), "sequence 1 is still inside window before acceptance");
-        association.UpdateReplayWindow(1);
-        Check(!association.IsValidSequenceNumber(1), "accepted old sequence becomes duplicate");
+        Check(association.IsValidSequenceNumber(5), "sequence 5 initially valid");
+        association.UpdateReplayWindow(5);
+        Check(!association.IsValidSequenceNumber(5), "duplicate sequence rejected");
+        Check(association.IsValidSequenceNumber(4), "older sequence inside window is valid");
+        association.UpdateReplayWindow(4);
+        Check(!association.IsValidSequenceNumber(4), "accepted old sequence becomes duplicate");
+        Check(association.IsValidSequenceNumber(3), "another sequence inside window is valid");
+        association.UpdateReplayWindow(3);
         Check(!association.IsValidSequenceNumber(0), "zero sequence rejected");
     }
 
