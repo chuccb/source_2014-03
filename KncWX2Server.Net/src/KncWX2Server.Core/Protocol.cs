@@ -18,18 +18,21 @@ public static class KncProtocol
         return BinaryPrimitives.ReadUInt16LittleEndian(header);
     }
 
-    public static int ValidateFrameLength(ushort frameLength)
+    public static int ValidateFrameLength(ushort frameLength, int maxFrameSize = MaxFrameSize)
     {
+        if (maxFrameSize < MinSecureFrameSize || maxFrameSize > ushort.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(maxFrameSize));
         if (frameLength < MinSecureFrameSize)
             throw new InvalidDataException($"Legacy frame length {frameLength} is smaller than the secure-buffer minimum.");
-        if (frameLength > MaxFrameSize)
-            throw new InvalidDataException($"Legacy frame length {frameLength} exceeds {MaxFrameSize} bytes.");
+        if (frameLength > maxFrameSize)
+            throw new InvalidDataException($"Legacy frame length {frameLength} exceeds {maxFrameSize} bytes.");
         return frameLength - FrameLengthFieldSize;
     }
 
     public static async ValueTask<byte[]> ReadSecureFrameAsync(
         NetworkStream stream,
         byte[] headerBuffer,
+        int maxFrameSize,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -39,7 +42,7 @@ public static class KncProtocol
 
         await stream.ReadExactlyAsync(headerBuffer.AsMemory(0, FrameLengthFieldSize), cancellationToken).ConfigureAwait(false);
         var frameLength = ReadFrameLength(headerBuffer);
-        var secureLength = ValidateFrameLength(frameLength);
+        var secureLength = ValidateFrameLength(frameLength, maxFrameSize);
 
         var secureBuffer = GC.AllocateUninitializedArray<byte>(secureLength);
         await stream.ReadExactlyAsync(secureBuffer, cancellationToken).ConfigureAwait(false);
