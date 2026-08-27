@@ -84,10 +84,13 @@ public sealed record ServerOptions
     public required int Port { get; init; }
     public required string DatabasePath { get; init; }
     public int Backlog { get; init; } = 256;
-    public int MaxPayloadBytes { get; init; } = KncProtocol.MaxPayloadBytes;
+    public int MaxFrameSize { get; init; } = 32768;
     public int WorkerCount { get; init; } = 6;
     public int PacketAuthFailLimit { get; init; } = 100;
-    public bool CheckSequenceNumbers { get; init; } = true;
+    // Legacy KNetLayer starts with sequence validation disabled.
+    public bool CheckSequenceNumbers { get; init; }
+    // Legacy accepter has Nagle enabled by default.
+    public bool NoDelay { get; init; }
 
     public static ServerOptions Defaults(ServerRole role, int port) => new()
     {
@@ -99,41 +102,69 @@ public sealed record ServerOptions
 
     public static ServerOptions Parse(string[] args, ServerRole role, int defaultPort)
     {
+        ArgumentNullException.ThrowIfNull(args);
         var options = Defaults(role, defaultPort);
 
         for (var i = 0; i < args.Length; i++)
         {
-            var arg = args[i];
-
-            switch (arg)
+            switch (args[i])
             {
-                case "--bind" when i + 1 < args.Length:
-                    options = options with { BindAddress = IPAddress.Parse(args[++i]) };
+                case "--bind" when TryRead(args, ref i, out var bind):
+                    options = options with { BindAddress = IPAddress.Parse(bind) };
                     break;
-                case "--port" when i + 1 < args.Length && int.TryParse(args[++i], out var port):
+                case "--port" when TryReadInt(args, ref i, out var port) && port is > 0 and <= ushort.MaxValue:
                     options = options with { Port = port };
                     break;
-                case "--db" when i + 1 < args.Length:
-                    options = options with { DatabasePath = Path.GetFullPath(args[++i]) };
+                case "--db" when TryRead(args, ref i, out var db):
+                    options = options with { DatabasePath = Path.GetFullPath(db) };
                     break;
-                case "--backlog" when i + 1 < args.Length && int.TryParse(args[++i], out var backlog) && backlog > 0:
+                case "--backlog" when TryReadInt(args, ref i, out var backlog) && backlog > 0:
                     options = options with { Backlog = backlog };
                     break;
-                case "--workers" when i + 1 < args.Length && int.TryParse(args[++i], out var workers) && workers > 0:
+                case "--workers" when TryReadInt(args, ref i, out var workers) && workers > 0:
                     options = options with { WorkerCount = workers };
                     break;
-                case "--auth-fail-limit" when i + 1 < args.Length && int.TryParse(args[++i], out var limit) && limit > 0:
+                case "--auth-fail-limit" when TryReadInt(args, ref i, out var limit) && limit >= 0:
                     options = options with { PacketAuthFailLimit = limit };
+                    break;
+                case "--sequence-check":
+                    options = options with { CheckSequenceNumbers = true };
                     break;
                 case "--no-sequence-check":
                     options = options with { CheckSequenceNumbers = false };
                     break;
-                case "--max-payload" when i + 1 < args.Length && int.TryParse(args[++i], out var maxPayload) && maxPayload > 0:
-                    options = options with { MaxPayloadBytes = maxPayload };
+                case "--no-delay":
+                    options = options with { NoDelay = true };
+                    break;
+                case "--max-frame" when TryReadInt(args, ref i, out var maxFrame) && maxFrame >= KncProtocol.MinSecureFrameSize && maxFrame <= ushort.MaxValue:
+                    options = options with { MaxFrameSize = maxFrame };
                     break;
             }
         }
 
         return options;
+    }
+
+    private static bool TryRead(string[] args, ref int index, out string value)
+    {
+        if (++index >= args.Length)
+        {
+            value = string.Empty;
+            return false;
+        }
+
+        value = args[index];
+        return true;
+    }
+
+    private static bool TryReadInt(string[] args, ref int index, out int value)
+    {
+        if (++index >= args.Length || !int.TryParse(args[index], out value))
+        {
+            value = default;
+            return false;
+        }
+
+        return true;
     }
 }
