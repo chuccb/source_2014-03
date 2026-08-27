@@ -9,10 +9,7 @@ public readonly record struct SecurityAssociationState(
     uint LastSequenceNumber,
     uint ReplayWindowMask);
 
-/// <summary>
-/// Direct managed counterpart of the legacy KSecurityAssociation.
-/// The cryptographic parameters and sequence-number semantics mirror the 2014 source.
-/// </summary>
+/// <summary>Managed counterpart of the legacy KSecurityAssociation.</summary>
 public sealed class SecurityAssociation
 {
     public const int AuthKeySize = 8;
@@ -23,10 +20,12 @@ public sealed class SecurityAssociation
     public const int MaxExtraPadBlocks = 1;
     public const uint MaxSequenceNumber = uint.MaxValue;
 
-    // KncSecurity71.vcproj declares the source file as ks_c_5601-1987.
-    // These are the exact first 8 bytes of the two legacy narrow string literals under CP949.
-    private static readonly byte[] DefaultAuthKey = [0xC0, 0xD3, 0xBD, 0xC3, 0xB7, 0xCE, 0xB8, 0xB8];
-    private static readonly byte[] DefaultCryptoKey = [0xC7, 0xD8, 0xC4, 0xBF, 0xB5, 0xE9, 0xC0, 0xFD];
+    // KncSecurity71.vcproj declares ks_c_5601-1987. These are the exact
+    // first 8 bytes consumed by the legacy Assign(..., AUTH/CRYPTO_KEY_SIZE).
+    private static readonly byte[] DefaultAuthKey = [
+        0xC0, 0xD3, 0xBD, 0xC3, 0xB7, 0xCE, 0xB8, 0xB8];
+    private static readonly byte[] DefaultCryptoKey = [
+        0xC7, 0xD8, 0xC4, 0xBF, 0xB5, 0xE9, 0xC0, 0xFD];
 
     public byte[] AuthKey { get; private set; } = [.. DefaultAuthKey];
     public byte[] CryptoKey { get; private set; } = [.. DefaultCryptoKey];
@@ -36,8 +35,19 @@ public sealed class SecurityAssociation
 
     public void ResetRandomizeKey()
     {
-        AuthKey = [.. Enumerable.Range(0, AuthKeySize).Select(static _ => (byte)RandomNumberGenerator.GetInt32(1, byte.MaxValue + 1))];
-        CryptoKey = [.. Enumerable.Range(0, CryptoKeySize).Select(static _ => (byte)RandomNumberGenerator.GetInt32(1, byte.MaxValue + 1))];
+        var authKey = new byte[AuthKeySize];
+        var cryptoKey = new byte[CryptoKeySize];
+        RandomizeKey(authKey);
+        RandomizeKey(cryptoKey);
+        AuthKey = authKey;
+        CryptoKey = cryptoKey;
+    }
+
+    private static void RandomizeKey(Span<byte> destination)
+    {
+        // Legacy Boost uniform_int range is inclusive 1..255.
+        for (var i = 0; i < destination.Length; i++)
+            destination[i] = (byte)RandomNumberGenerator.GetInt32(1, byte.MaxValue + 1);
     }
 
     public void SetAuthKey(ReadOnlySpan<byte> key) => AuthKey = key.ToArray();
@@ -118,8 +128,20 @@ public sealed class SecurityAssociation
 
     public byte[] GenerateIcv(ReadOnlySpan<byte> authenticatedData)
     {
-        using var hmac = new HMACMD5(AuthKey);
-        return hmac.ComputeHash(authenticatedData.ToArray())[..IcvSize];
+        Span<byte> fullHash = stackalloc byte[HMACMD5.HashSizeInBytes];
+        _ = HMACMD5.HashData(AuthKey, authenticatedData, fullHash);
+        return [.. fullHash[..IcvSize]];
+    }
+
+    public bool TryGenerateIcv(ReadOnlySpan<byte> authenticatedData, Span<byte> destination)
+    {
+        if (destination.Length < IcvSize)
+            return false;
+
+        Span<byte> fullHash = stackalloc byte[HMACMD5.HashSizeInBytes];
+        _ = HMACMD5.HashData(AuthKey, authenticatedData, fullHash);
+        fullHash[..IcvSize].CopyTo(destination);
+        return true;
     }
 
     public SecurityAssociationState Snapshot() =>
