@@ -20,7 +20,35 @@ static class ActorManagerRegression
         second.QueueingEvent(new KEvent());
         await manager.TickAsync();
 
-        if (!processed.SequenceEqual([1L, 2L]))
+        if (processed.Count != 2 || processed[0] != 1L || processed[1] != 2L)
             throw new InvalidOperationException("Regression check failed: native actor insertion order");
+    }
+
+    public static async Task TickUsesStableSnapshot()
+    {
+        var processed = new List<long>(3);
+        var manager = new ServerActorManager();
+        var created = false;
+        var processor = (ServerActor actor, KEvent _) =>
+        {
+            processed.Add(actor.Id);
+            if (actor.Id == 1 && !created)
+            {
+                created = true;
+                manager.Create(3, processor);
+            }
+
+            return ValueTask.CompletedTask;
+        };
+
+        var first = manager.Create(1, processor);
+        manager.Create(2, processor);
+        await manager.TickAsync();
+
+        first.QueueingEvent(new KEvent());
+        await manager.TickAsync();
+
+        if (processed.Count != 1 || processed[0] != 1L || manager.Count != 3)
+            throw new InvalidOperationException("Regression check failed: actor added during tick must wait for the next tick");
     }
 }
