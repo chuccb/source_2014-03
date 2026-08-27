@@ -55,22 +55,28 @@ public sealed class ServerEventRouter
 
     private ServerEventRouteResult RouteToUsers(KEvent @event)
     {
+        var remoteRequired = false;
         var routed = false;
+
         foreach (var uid in @event.Destination.Uids)
         {
-            var actor = _actors.Get(uid);
-            if (actor is null)
-                continue;
-
-            actor.QueueingEvent(@event.Clone());
-            routed = true;
+            if (_actors.Get(uid) is { } actor)
+            {
+                actor.QueueingEvent(@event.Clone());
+                routed = true;
+            }
+            else if (!@event.IsEmptyTrace)
+            {
+                remoteRequired = true;
+            }
         }
+
+        if (remoteRequired)
+            return ServerEventRouteResult.RemoteRouteRequired;
 
         return routed
             ? ServerEventRouteResult.Routed
-            : @event.IsEmptyTrace
-                ? ServerEventRouteResult.LocalTargetMissing
-                : ServerEventRouteResult.RemoteRouteRequired;
+            : ServerEventRouteResult.LocalTargetMissing;
     }
 
     private ServerEventRouteResult RouteToInternalPerformer(uint destination, KEvent @event) =>
@@ -83,8 +89,7 @@ public sealed class ServerEventRouter
         if (@event.IsEmptyTrace)
             return ServerEventRouteResult.LocalTargetMissing;
 
-        var uid = @event.LastSenderUid;
-        return _actors.QueueingTo(uid, @event)
+        return _actors.QueueingTo(@event.LastSenderUid, @event)
             ? ServerEventRouteResult.Routed
             : ServerEventRouteResult.LocalTargetMissing;
     }
