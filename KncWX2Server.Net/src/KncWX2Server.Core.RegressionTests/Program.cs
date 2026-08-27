@@ -19,6 +19,7 @@ static class Program
         SecureBufferRejectsTamperingAndDuplicates();
         ReplayWindowMatchesLegacySemantics();
         await ActorQueueAndDeferredManagerLifecycle();
+        await ActorManagerRegression.PreservesNativeInsertionOrder();
         Console.WriteLine("All KncWX2Server core regression checks passed.");
         return 0;
     }
