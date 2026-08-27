@@ -1,4 +1,3 @@
-using System.Data.Common;
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 
@@ -69,8 +68,8 @@ public sealed class GupCreateUnitService
             return new(-222, 0, deletedNicknameDate.AddDays(14));
         }
 
-        await using DbTransaction transaction = await connection.BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
@@ -164,7 +163,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<long> InsertUnitAsync(
         SqliteConnection connection,
-        DbTransaction transaction,
+        SqliteTransaction transaction,
         long userUid,
         byte unitClass,
         string nowText,
@@ -199,7 +198,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<bool> InsertUnitNicknameAsync(
         SqliteConnection connection,
-        DbTransaction transaction,
+        SqliteTransaction transaction,
         long unitUid,
         string nickname,
         string nowText,
@@ -224,7 +223,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<bool> InsertDenyOptionAsync(
         SqliteConnection connection,
-        DbTransaction transaction,
+        SqliteTransaction transaction,
         long unitUid,
         int questionNo,
         CancellationToken cancellationToken)
@@ -247,7 +246,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask InsertInitialQuestAsync(
         SqliteConnection connection,
-        DbTransaction transaction,
+        SqliteTransaction transaction,
         long unitUid,
         string nowText,
         CancellationToken cancellationToken)
@@ -263,7 +262,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<bool> InsertSkillAsync(
         SqliteConnection connection,
-        DbTransaction transaction,
+        SqliteTransaction transaction,
         long unitUid,
         int skillId,
         string nowText,
@@ -288,7 +287,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<bool> InsertSkillSlotAsync(
         SqliteConnection connection,
-        DbTransaction transaction,
+        SqliteTransaction transaction,
         long unitUid,
         int skillId,
         CancellationToken cancellationToken)
@@ -311,7 +310,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<bool> InsertSpiritAsync(
         SqliteConnection connection,
-        DbTransaction transaction,
+        SqliteTransaction transaction,
         long unitUid,
         short? spirit,
         string nowText,
@@ -406,7 +405,7 @@ public sealed class GupCreateUnitService
 
     private static async ValueTask<int> ExecuteNonQueryAsync(
         SqliteConnection connection,
-        DbTransaction transaction,
+        SqliteTransaction transaction,
         string sql,
         CancellationToken cancellationToken,
         params (string Name, object Value)[] parameters)
@@ -421,7 +420,7 @@ public sealed class GupCreateUnitService
     }
 
     private static async ValueTask<GupCreateUnitResult> RollbackAsync(
-        DbTransaction transaction,
+        SqliteTransaction transaction,
         GupCreateUnitResult result,
         CancellationToken cancellationToken)
     {
