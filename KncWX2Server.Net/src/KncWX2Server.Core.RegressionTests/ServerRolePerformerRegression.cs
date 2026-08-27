@@ -38,6 +38,10 @@ static class ServerRolePerformerRegression
         Check(manager.RegisterRole(ServerRole.Login, static (_, _) => ValueTask.CompletedTask) is null, "duplicate Login role rejected");
         Check(manager.Remove(registered.PerformerId), "remove registered Login performer");
         Check(manager.Get(registered.PerformerId) is null, "removed Login performer unavailable");
+
+        ServerConnectAckRegression.SerializerRoundTripsEffectiveIntegrationLayout();
+        await ServerConnectAckRegression.AuthenticatesAndUpdatesActorUid();
+        await ServerConnectAckRegression.RejectsDuplicateUidAfterSendingSuccessResponse();
     }
 
     private static void Check(bool condition, string name)
