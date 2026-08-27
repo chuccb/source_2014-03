@@ -137,16 +137,16 @@ public sealed class ServerActorManager
     {
         lock (_gate)
         {
-            if (oldUid == newUid || !_actorsByUid.TryGetValue(oldUid, out var actor))
-                return false;
-
-            if (_actorsByUid.ContainsKey(newUid))
+            if (!_actorsByUid.TryGetValue(oldUid, out var actor))
                 return false;
 
             _actorsByUid.Remove(oldUid);
-            _actorsByUid.Add(newUid, actor);
             actor.Uid = newUid;
-            return true;
+
+            if (_actorsByUid.TryAdd(newUid, actor))
+                return true;
+
+            return false;
         }
     }
 
