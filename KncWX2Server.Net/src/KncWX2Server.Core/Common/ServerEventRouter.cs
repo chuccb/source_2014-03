@@ -45,11 +45,12 @@ public sealed class ServerEventRouter
         PerformerRouting.GetPerformerClass(destination) switch
         {
             PerformerRouting.PerformerUser => RouteToUsers(@event),
+            PerformerRouting.PerformerServer or
             PerformerRouting.PerformerAccountDb or
             PerformerRouting.PerformerGameDb or
             PerformerRouting.PerformerGameDb2nd or
             PerformerRouting.PerformerLogDb or
-            PerformerRouting.PerformerLogDb2nd => RouteToInternalPerformer(destination, @event),
+            PerformerRouting.PerformerLogDb2nd => RouteToPerformer(destination, @event),
             _ => ServerEventRouteResult.UnsupportedPerformer,
         };
 
@@ -79,7 +80,7 @@ public sealed class ServerEventRouter
             : ServerEventRouteResult.LocalTargetMissing;
     }
 
-    private ServerEventRouteResult RouteToInternalPerformer(uint destination, KEvent @event) =>
+    private ServerEventRouteResult RouteToPerformer(uint destination, KEvent @event) =>
         _performers.QueueingTo(destination, @event)
             ? ServerEventRouteResult.Routed
             : ServerEventRouteResult.LocalTargetMissing;
