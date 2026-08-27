@@ -70,6 +70,17 @@ static class ActorManagerRegression
         Check(ReferenceEquals(manager.Get(secondUid), second), "existing duplicate target mapping remains authoritative");
     }
 
+    public static async Task GetsMinimumUidLikeNativeMapBegin()
+    {
+        var manager = new ServerActorManager();
+        var first = manager.Create(1, static (_, _) => ValueTask.CompletedTask);
+        var second = manager.Create(2, static (_, _) => ValueTask.CompletedTask);
+        await manager.TickAsync();
+
+        var minimum = Math.Min(first.Uid, second.Uid);
+        Check(manager.GetFirstActorKey() == minimum, "first actor key is minimum UID, not insertion order");
+    }
+
     private static void Check(bool condition, string name)
     {
         if (!condition)
