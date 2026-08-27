@@ -55,7 +55,7 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
                     QueueSessionEventAsync,
                     cancellationToken);
 
-                var task = RunSessionAsync(sessionId, session);
+                var task = RunSessionAsync(sessionId, session, actor);
                 _sessions[sessionId] = task;
                 _ = RemoveCompletedSessionAsync(sessionId, task);
             }
@@ -73,9 +73,6 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
             {
             }
 
-            foreach (var actor in _sessionActors.Values)
-                actor.Events.Clear();
-
             await WaitForSessionsAsync().ConfigureAwait(false);
         }
     }
@@ -91,9 +88,8 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
     {
         Console.WriteLine($"actor={actor.Id} uid={actor.Uid} event={@event.EventId} payload={@event.Buffer.Length} bytes");
 
-        // The queue/FSM boundary is now real and owned by ServerActor. Individual
-        // role opcode handlers are deliberately connected in their service stage;
-        // no business operation is invented at this shared layer.
+        // The shared layer owns only queue/FSM delivery. Individual role opcode
+        // handlers are attached in the corresponding service migration stage.
         return ValueTask.CompletedTask;
     }
 
@@ -104,7 +100,7 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
             await _actors.TickAsync().ConfigureAwait(false);
     }
 
-    private async Task RunSessionAsync(long sessionId, KncServerSession session)
+    private async Task RunSessionAsync(long sessionId, KncServerSession session, ServerActor actor)
     {
         try
         {
@@ -112,8 +108,7 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
         }
         finally
         {
-            if (_sessionActors.TryGetValue(sessionId, out var actor))
-                _actors.ReserveDelete(actor.Uid);
+            _actors.ReserveDelete(actor);
         }
     }
 
