@@ -7,5 +7,6 @@
     <Project Path="src/KncWX2Server.CenterServer/KncWX2Server.CenterServer.csproj" />
     <Project Path="src/KncWX2Server.ChannelServer/KncWX2Server.ChannelServer.csproj" />
     <Project Path="src/KncWX2Server.GameServer/KncWX2Server.GameServer.csproj" />
+    <Project Path="src/KncWX2Server.Core.RegressionTests/KncWX2Server.Core.RegressionTests.csproj" />
   </Folder>
 </Solution>
