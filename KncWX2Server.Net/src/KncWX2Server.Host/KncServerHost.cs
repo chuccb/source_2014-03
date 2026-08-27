@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net.Sockets;
 using KncWX2Server.Core;
+using KncWX2Server.Core.Common;
 using KncWX2Server.Persistence;
 
 namespace KncWX2Server.Host;
@@ -12,13 +13,13 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        await database.InitializeAsync(cancellationToken);
+        await database.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
         var listener = new TcpListener(options.BindAddress, options.Port);
         listener.Start(options.Backlog);
 
         Console.WriteLine($"[{options.Role}] listening on {options.BindAddress}:{options.Port}");
-        Console.WriteLine($"SQLite: {database.DatabasePath}; workers={options.WorkerCount}; packet-auth-limit={options.PacketAuthFailLimit}; sequence-check={options.CheckSequenceNumbers}");
+        Console.WriteLine($"SQLite: {database.DatabasePath}; workers={options.WorkerCount}; packet-auth-limit={options.PacketAuthFailLimit}; sequence-check={options.CheckSequenceNumbers}; no-delay={options.NoDelay}");
 
         try
         {
@@ -27,16 +28,19 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
                 TcpClient client;
                 try
                 {
-                    client = await listener.AcceptTcpClientAsync(cancellationToken);
+                    client = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     break;
                 }
 
-                client.NoDelay = true;
+                // Legacy accepter enables Nagle by default; only --no-delay maps to TCP_NODELAY.
+                client.NoDelay = options.NoDelay;
+
                 var sessionId = Interlocked.Increment(ref _nextSessionId);
-                var task = HandleClientAsync(sessionId, client, cancellationToken);
+                var session = new KncServerSession(sessionId, client, options, DispatchAsync, cancellationToken);
+                var task = session.RunAsync();
                 _sessions[sessionId] = task;
                 _ = RemoveCompletedSessionAsync(sessionId, task);
             }
@@ -44,51 +48,17 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
         finally
         {
             listener.Stop();
-            await WaitForSessionsAsync();
+            await WaitForSessionsAsync().ConfigureAwait(false);
         }
     }
 
-    private async Task HandleClientAsync(long sessionId, TcpClient client, CancellationToken cancellationToken)
+    private static ValueTask DispatchAsync(KncServerSession session, KEvent @event)
     {
-        using (client)
-        {
-            Console.WriteLine($"[{options.Role}] client #{sessionId} connected from {client.Client.RemoteEndPoint}");
+        Console.WriteLine($"[{session.SessionId}] event={@event.EventId} spi={session.Spi} payload={@event.Buffer.Length} bytes");
 
-            try
-            {
-                await using var stream = client.GetStream();
-
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    var packet = await KncProtocol.ReadAsync(stream, options.MaxPayloadBytes, cancellationToken);
-                    await DispatchAsync(sessionId, packet, stream, cancellationToken);
-                }
-            }
-            catch (EndOfStreamException)
-            {
-                Console.WriteLine($"[{options.Role}] client #{sessionId} disconnected");
-            }
-            catch (IOException ex) when (ex.InnerException is SocketException)
-            {
-                Console.WriteLine($"[{options.Role}] client #{sessionId} socket closed: {ex.Message}");
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[{options.Role}] client #{sessionId} failed: {ex}");
-            }
-        }
-    }
-
-    private static ValueTask DispatchAsync(long sessionId, Packet packet, NetworkStream stream, CancellationToken cancellationToken)
-    {
-        Console.WriteLine($"packet session={sessionId} opcode=0x{packet.Opcode:X4} flags=0x{packet.Flags:X4} payload={packet.Payload.Length} bytes");
-
-        // Legacy opcode routing is intentionally not guessed here. The old server's
-        // exact wire contract is distributed across the native event/protocol code.
-        // This transport layer keeps framing lossless until each opcode is ported.
+        // Role-specific opcode handlers are not guessed here. The native server
+        // routes KEvent through actor/server managers; those callers are the next
+        // subsystem to port once this transport contract is stable.
         return ValueTask.CompletedTask;
     }
 
@@ -108,14 +78,14 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
     {
         var pending = _sessions.Values.ToArray();
         if (pending.Length != 0)
-            await Task.WhenAll(pending);
+            await Task.WhenAll(pending).ConfigureAwait(false);
     }
 }
 
 public static class KncServerBootstrap
 {
     private static readonly List<ServerRole> _roles =
-        [with(capacity: 4), ServerRole.Login, ServerRole.Center, ServerRole.Channel, ServerRole.Game];
+        [ServerRole.Login, ServerRole.Center, ServerRole.Channel, ServerRole.Game];
 
     public static IReadOnlyList<ServerRole> Roles => _roles;
 
@@ -131,6 +101,6 @@ public static class KncServerBootstrap
         };
 
         await using var database = new SqliteDatabase(options.DatabasePath);
-        await new KncServerHost(options, database).RunAsync(shutdown.Token);
+        await new KncServerHost(options, database).RunAsync(shutdown.Token).ConfigureAwait(false);
     }
 }
