@@ -20,6 +20,7 @@ static class Program
         ReplayWindowMatchesLegacySemantics();
         await ActorQueueAndDeferredManagerLifecycle();
         await ActorManagerRegression.PreservesNativeInsertionOrder();
+        await ActorManagerRegression.TickUsesStableSnapshot();
         await PerformerRoutingPreservesLegacyDispatchSemantics();
         LoginDispatchRegression.RejectsUnprovenLoginPayloads();
         Console.WriteLine("All KncWX2Server core regression checks passed.");
