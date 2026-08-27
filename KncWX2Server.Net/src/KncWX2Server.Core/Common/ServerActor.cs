@@ -1,6 +1,6 @@
 namespace KncWX2Server.Core.Common;
 
-using KncWX2Server.Core.Common.Fsm;
+using FsmType = KncWX2Server.Core.Common.Fsm.Fsm;
 
 /// <summary>
 /// Managed actor boundary corresponding to native KActor: a session owns the
@@ -9,7 +9,7 @@ using KncWX2Server.Core.Common.Fsm;
 public sealed class ServerActor
 {
     private readonly ServerEventQueue _events = new();
-    private Fsm? _fsm;
+    private FsmType? _fsm;
     private Func<ServerActor, KEvent, ValueTask>? _eventProcessor;
 
     public ServerActor(long id)
@@ -20,9 +20,9 @@ public sealed class ServerActor
     public long Id { get; }
     public long Uid { get; internal set; }
     public ServerEventQueue Events => _events;
-    public Fsm? Fsm => _fsm;
+    public FsmType? Fsm => _fsm;
 
-    public void SetFsm(Fsm fsm, int initialState)
+    public void SetFsm(FsmType fsm, int initialState)
     {
         ArgumentNullException.ThrowIfNull(fsm);
         _fsm = fsm;
