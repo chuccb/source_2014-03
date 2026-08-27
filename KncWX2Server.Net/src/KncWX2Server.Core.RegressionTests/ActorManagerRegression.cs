@@ -29,7 +29,8 @@ static class ActorManagerRegression
         var processed = new List<long>(3);
         var manager = new ServerActorManager();
         var created = false;
-        var processor = (ServerActor actor, KEvent _) =>
+        Func<ServerActor, KEvent, ValueTask>? processor = null;
+        processor = (actor, _) =>
         {
             processed.Add(actor.Id);
             if (actor.Id == 1 && !created)
