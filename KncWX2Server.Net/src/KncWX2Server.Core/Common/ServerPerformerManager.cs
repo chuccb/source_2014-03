@@ -2,25 +2,37 @@ namespace KncWX2Server.Core.Common;
 
 public sealed class ServerPerformerManager
 {
-    private readonly Dictionary<uint, ServerPerformer> _performers = [];
+    private readonly List<ServerPerformer> _performers = [];
+    private readonly Dictionary<uint, ServerPerformer> _performersById = [];
 
     public int Count => _performers.Count;
 
     public bool Register(ServerPerformer performer)
     {
         ArgumentNullException.ThrowIfNull(performer);
-        return _performers.TryAdd(performer.PerformerId, performer);
+        if (!_performersById.TryAdd(performer.PerformerId, performer))
+            return false;
+
+        _performers.Add(performer);
+        return true;
     }
 
-    public bool Remove(uint performerId) => _performers.Remove(performerId);
+    public bool Remove(uint performerId)
+    {
+        if (!_performersById.Remove(performerId, out var performer))
+            return false;
+
+        _performers.Remove(performer);
+        return true;
+    }
 
     public ServerPerformer? Get(uint performerId) =>
-        _performers.GetValueOrDefault(performerId);
+        _performersById.GetValueOrDefault(performerId);
 
     public bool QueueingTo(uint performerId, KEvent @event)
     {
         ArgumentNullException.ThrowIfNull(@event);
-        if (!_performers.TryGetValue(performerId, out var performer))
+        if (!_performersById.TryGetValue(performerId, out var performer))
             return false;
 
         performer.QueueingEvent(@event);
@@ -29,7 +41,7 @@ public sealed class ServerPerformerManager
 
     public async ValueTask TickAsync()
     {
-        foreach (var performer in _performers.Values)
+        foreach (var performer in _performers)
             await performer.TickAsync().ConfigureAwait(false);
     }
 }
