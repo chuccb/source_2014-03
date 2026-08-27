@@ -150,6 +150,28 @@ public sealed class ServerActorManager
         }
     }
 
+    public long GetFirstActorKey()
+    {
+        lock (_gate)
+        {
+            if (_actorsByUid.Count == 0)
+                return 0;
+
+            var found = false;
+            var firstUid = 0L;
+            foreach (var uid in _actorsByUid.Keys)
+            {
+                if (found && uid >= firstUid)
+                    continue;
+
+                firstUid = uid;
+                found = true;
+            }
+
+            return firstUid;
+        }
+    }
+
     public int GetMaxQueueSize(out long actorUid)
     {
         lock (_gate)
