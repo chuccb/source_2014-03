@@ -11,7 +11,8 @@ public sealed class ServerActorManager
 {
     private readonly ConcurrentDictionary<long, ServerActor> _actors = new();
     private readonly ConcurrentQueue<ServerActor> _pendingAdd = new();
-    private readonly ConcurrentQueue<long> _pendingDelete = new();
+    private readonly ConcurrentQueue<ServerActor> _pendingDelete = new();
+    private readonly ConcurrentDictionary<long, byte> _cancelledBeforeAdd = new();
 
     public int Count => _actors.Count;
 
@@ -28,7 +29,11 @@ public sealed class ServerActorManager
     public ServerActor? Get(long uid) =>
         _actors.TryGetValue(uid, out var actor) ? actor : null;
 
-    public void ReserveDelete(long uid) => _pendingDelete.Enqueue(uid);
+    public void ReserveDelete(ServerActor actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        _pendingDelete.Enqueue(actor);
+    }
 
     public void QueueingTo(long uid, KEvent @event)
     {
@@ -50,12 +55,23 @@ public sealed class ServerActorManager
             await actor.TickAsync().ConfigureAwait(false);
 
         // Deletions are deliberately deferred until all current actor queues ran.
-        while (_pendingDelete.TryDequeue(out var uid))
-            _actors.TryRemove(uid, out _);
+        while (_pendingDelete.TryDequeue(out var actor))
+        {
+            if (actor.Uid == 0)
+            {
+                _cancelledBeforeAdd.TryAdd(actor.Id, 0);
+                continue;
+            }
+
+            _actors.TryRemove(actor.Uid, out _);
+        }
 
         // Additions are deliberately deferred until the end of the tick.
         while (_pendingAdd.TryDequeue(out var actor))
         {
+            if (_cancelledBeforeAdd.TryRemove(actor.Id, out _))
+                continue;
+
             actor.Uid = GenerateTemporaryUid();
             _actors.TryAdd(actor.Uid, actor);
         }
