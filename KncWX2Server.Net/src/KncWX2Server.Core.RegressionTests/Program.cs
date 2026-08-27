@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
+using KncWX2Server.Core;
+using KncWX2Server.Core.Common;
 using KncWX2Server.Core.Common.Security;
 using KncWX2Server.Core.Common.Serialization;
 
@@ -10,6 +12,9 @@ static class Program
         SerializerUsesLegacyNetworkByteOrder();
         SerializerUsesWin32Utf16LeWStringBytes();
         SerBufferCompressionRoundTrips();
+        PerformerInfoUsesLegacyUidLimit();
+        EventRoundTripsInLegacyFieldOrder();
+        LegacyFrameUsesTwoByteTotalLength();
         SecureBufferRoundTripsAndAuthenticates();
         SecureBufferRejectsTamperingAndDuplicates();
         ReplayWindowMatchesLegacySemantics();
@@ -27,14 +32,13 @@ static class Program
         Check(serializer.Put(true), "write bool");
         Check(serializer.EndWriting(), "end write");
 
-        var bytes = buffer.Data.ToArray();
         AssertSequence(
             [
                 (byte)SerializeTag.DWord, 0x11, 0x22, 0x33, 0x44,
                 (byte)SerializeTag.Short, 0x12, 0x34,
                 (byte)SerializeTag.Bool, 0x01,
             ],
-            bytes,
+            buffer.Data,
             "serializer primitive wire order");
 
         buffer.Reset();
@@ -60,7 +64,7 @@ static class Program
                 0x00, 0x00, 0x00, 0x04,
                 0x41, 0x00, 0x42, 0x00,
             ],
-            buffer.Data.ToArray(),
+            buffer.Data,
             "wstring wire bytes");
 
         buffer.Reset();
@@ -78,7 +82,69 @@ static class Program
         Check(buffer.IsCompressed, "compressed flag");
         Check(buffer.Uncompress(), "uncompress SerBuffer");
         Check(!buffer.IsCompressed, "uncompressed flag");
-        AssertSequence(original, buffer.Data.ToArray(), "SerBuffer compression round trip");
+        AssertSequence(original, buffer.Data, "SerBuffer compression round trip");
+    }
+
+    private static void PerformerInfoUsesLegacyUidLimit()
+    {
+        var performer = new KPerformerInfo();
+        for (var i = 0; i < KPerformerInfo.MaxUidCount; i++)
+            Check(performer.AddUid(i), $"add uid {i}");
+
+        Check(performer.UidListSize == 2000, "legacy max UID count");
+        Check(!performer.AddUid(2000), "reject UID above legacy limit");
+        Check(performer.GetFirstUid() == 0, "first sorted UID");
+    }
+
+    private static void EventRoundTripsInLegacyFieldOrder()
+    {
+        var source = new KEvent();
+        source.SetData(0x12345678, [100, 50], 0x2233);
+        Check(source.Destination.AddUid(9001), "event destination uid");
+        source.Buffer.Write([0xAA, 0xBB, 0xCC]);
+
+        var buffer = new SerBuffer();
+        var serializer = new KSerializer();
+        Check(serializer.BeginWriting(buffer), "event begin write");
+        Check(serializer.Put(source), "event write");
+        Check(serializer.EndWriting(), "event end write");
+
+        var expected = new SerBuffer();
+        var expectedSerializer = new KSerializer();
+        Check(expectedSerializer.BeginWriting(expected), "expected event begin write");
+        Check(expectedSerializer.Put(source.Destination), "expected destination");
+        Check(expectedSerializer.Put((long)100), "expected first trace");
+        Check(expectedSerializer.Put((long)50), "expected last trace");
+        Check(expectedSerializer.Put((ushort)0x2233), "expected event id");
+        Check(expectedSerializer.Put(source.Buffer), "expected buffer");
+        Check(expectedSerializer.EndWriting(), "expected event end write");
+        AssertSequence(expected.Data, buffer.Data, "KEvent field order");
+
+        buffer.Reset();
+        var decoded = new KEvent();
+        Check(serializer.BeginReading(buffer), "event begin read");
+        Check(serializer.Get(decoded), "event read");
+        Check(serializer.EndReading(), "event end read");
+        Check(decoded.Destination.PerformerId == source.Destination.PerformerId, "event performer id");
+        Check(decoded.Destination.FindUid(9001), "event destination uid round trip");
+        Check(decoded.FirstTrace == 100 && decoded.LastTrace == 50, "event trace round trip");
+        Check(decoded.EventId == 0x2233, "event id round trip");
+        AssertSequence([0xAA, 0xBB, 0xCC], decoded.Buffer.Data, "event payload round trip");
+    }
+
+    private static void LegacyFrameUsesTwoByteTotalLength()
+    {
+        var secure = new byte[SecurityAssociation.IcvSize + SecurityAssociation.IvSize + SecurityAssociation.BlockSize + 2 + 4];
+        for (var i = 0; i < secure.Length; i++)
+            secure[i] = (byte)i;
+
+        var frame = KncProtocol.CreateFrame(secure);
+        Check(BinaryPrimitives.ReadUInt16LittleEndian(frame) == frame.Length, "legacy total frame length");
+        Check(KncProtocol.ReadFrameLength(frame) == frame.Length, "legacy frame header parse");
+        Check(KncProtocol.ValidateFrameLength((ushort)frame.Length) == secure.Length, "legacy frame payload length");
+        AssertSequence(secure, frame.AsSpan(KncProtocol.FrameLengthFieldSize), "legacy secure frame contents");
+
+        Check(KncProtocol.ValidateFrameLength(20) == 18, "short complete frame reaches security layer");
     }
 
     private static void SecureBufferRoundTripsAndAuthenticates()
@@ -98,7 +164,7 @@ static class Program
         Check(receiver.IsAuthentic(), "secure authentication");
         var output = new ByteStream();
         Check(receiver.GetPayload(output), "secure payload decode");
-        AssertSequence(payloadBytes, output.ToArray(), "secure payload round trip");
+        AssertSequence(payloadBytes, output.Span, "secure payload round trip");
         receiver.SetAccepted();
 
         Check(association.SequenceNumber == 2, "sender sequence increment");
