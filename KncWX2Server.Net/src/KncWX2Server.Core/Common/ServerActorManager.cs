@@ -3,18 +3,25 @@ using System.Security.Cryptography;
 
 namespace KncWX2Server.Core.Common;
 
-/// <summary>
-/// Deferred actor registry corresponding to native KActorManager.
-/// Tick order is intentionally actor-processing, delete, then add.
-/// </summary>
+/// <summary>Deferred actor registry matching native KActorManager tick ordering and actor insertion order.</summary>
 public sealed class ServerActorManager
 {
-    private readonly ConcurrentDictionary<long, ServerActor> _actors = new();
+    private readonly object _gate = new();
+    private readonly List<ServerActor> _actors = [with(capacity: 5000)];
+    private readonly Dictionary<long, ServerActor> _actorsByUid = [];
     private readonly ConcurrentQueue<ServerActor> _pendingAdd = new();
     private readonly ConcurrentQueue<ServerActor> _pendingDelete = new();
-    private readonly ConcurrentDictionary<long, byte> _cancelledBeforeAdd = new();
+    private readonly Dictionary<long, ServerActor> _pendingAddById = [];
+    private readonly HashSet<long> _cancelledBeforeAdd = [];
 
-    public int Count => _actors.Count;
+    public int Count
+    {
+        get
+        {
+            lock (_gate)
+                return _actors.Count;
+        }
+    }
 
     public ServerActor Create(long id, Func<ServerActor, KEvent, ValueTask> eventProcessor)
     {
@@ -22,12 +29,19 @@ public sealed class ServerActorManager
 
         var actor = new ServerActor(id);
         actor.SetEventProcessor(eventProcessor);
+
+        lock (_gate)
+            _pendingAddById[id] = actor;
+
         _pendingAdd.Enqueue(actor);
         return actor;
     }
 
-    public ServerActor? Get(long uid) =>
-        _actors.TryGetValue(uid, out var actor) ? actor : null;
+    public ServerActor? Get(long uid)
+    {
+        lock (_gate)
+            return _actorsByUid.GetValueOrDefault(uid);
+    }
 
     public void ReserveDelete(ServerActor actor)
     {
@@ -44,72 +58,92 @@ public sealed class ServerActorManager
     public void QueueingToAll(KEvent @event)
     {
         ArgumentNullException.ThrowIfNull(@event);
-        foreach (var actor in _actors.Values)
+
+        ServerActor[] actors;
+        lock (_gate)
+            actors = [.. _actors];
+
+        foreach (var actor in actors)
             actor.QueueingEvent(@event.Clone());
     }
 
     public async ValueTask TickAsync()
     {
-        // Native KActorManager::Tick() processes the current actor set first.
-        foreach (var actor in _actors.Values)
+        ServerActor[] actors;
+        lock (_gate)
+            actors = [.. _actors];
+
+        // Native KActorManager::Tick() processes the current actor vector first.
+        foreach (var actor in actors)
             await actor.TickAsync().ConfigureAwait(false);
 
-        // Deletions are deliberately deferred until all current actor queues ran.
+        // Native order: deferred deletion, then deferred addition.
         while (_pendingDelete.TryDequeue(out var actor))
         {
-            if (actor.Uid == 0)
+            lock (_gate)
             {
-                _cancelledBeforeAdd.TryAdd(actor.Id, 0);
-                continue;
-            }
+                if (actor.Uid == 0)
+                {
+                    _cancelledBeforeAdd.Add(actor.Id);
+                    _pendingAddById.Remove(actor.Id);
+                    continue;
+                }
 
-            _actors.TryRemove(actor.Uid, out _);
+                if (_actorsByUid.Remove(actor.Uid, out var registered))
+                    _actors.Remove(registered);
+            }
         }
 
-        // Additions are deliberately deferred until the end of the tick.
         while (_pendingAdd.TryDequeue(out var actor))
         {
-            if (_cancelledBeforeAdd.TryRemove(actor.Id, out _))
-                continue;
+            lock (_gate)
+            {
+                _pendingAddById.Remove(actor.Id);
+                if (_cancelledBeforeAdd.Remove(actor.Id))
+                    continue;
 
-            actor.Uid = GenerateTemporaryUid();
-            _actors.TryAdd(actor.Uid, actor);
+                actor.Uid = GenerateTemporaryUid();
+                if (_actorsByUid.TryAdd(actor.Uid, actor))
+                    _actors.Add(actor);
+            }
         }
     }
 
     public bool UpdateUid(long oldUid, long newUid)
     {
-        if (oldUid == newUid || !_actors.TryGetValue(oldUid, out var actor))
-            return false;
-
-        if (!_actors.TryAdd(newUid, actor))
-            return false;
-
-        if (_actors.TryRemove(oldUid, out _))
+        lock (_gate)
         {
+            if (oldUid == newUid || !_actorsByUid.TryGetValue(oldUid, out var actor))
+                return false;
+
+            if (_actorsByUid.ContainsKey(newUid))
+                return false;
+
+            _actorsByUid.Remove(oldUid);
+            _actorsByUid.Add(newUid, actor);
             actor.Uid = newUid;
             return true;
         }
-
-        _actors.TryRemove(newUid, out _);
-        return false;
     }
 
     public int GetMaxQueueSize(out long actorUid)
     {
-        actorUid = 0;
-        var max = 0;
-
-        foreach (var actor in _actors.Values)
+        lock (_gate)
         {
-            if (actor.MaxQueueSize <= max)
-                continue;
+            actorUid = 0;
+            var max = 0;
 
-            max = actor.MaxQueueSize;
-            actorUid = actor.Uid;
+            foreach (var actor in _actors)
+            {
+                if (actor.MaxQueueSize <= max)
+                    continue;
+
+                max = actor.MaxQueueSize;
+                actorUid = actor.Uid;
+            }
+
+            return max;
         }
-
-        return max;
     }
 
     private long GenerateTemporaryUid()
@@ -118,12 +152,12 @@ public sealed class ServerActorManager
         while (true)
         {
             RandomNumberGenerator.Fill(bytes);
-            var value = BitConverter.ToUInt64(bytes) & 0x000000ffffffffffUL;
-            if (value == 0)
+            var pureUid = BitConverter.ToUInt64(bytes) & 0x000000ffffffffffUL;
+            if (pureUid == 0)
                 continue;
 
-            var uid = unchecked((long)(value | 0x4000000000000000UL));
-            if (!_actors.ContainsKey(uid))
+            var uid = unchecked((long)(pureUid | 0x4000000000000000UL));
+            if (!_actorsByUid.ContainsKey(uid))
                 return uid;
         }
     }
