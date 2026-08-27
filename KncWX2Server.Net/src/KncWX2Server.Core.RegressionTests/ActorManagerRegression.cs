@@ -29,21 +29,21 @@ static class ActorManagerRegression
         var processed = new List<long>(3);
         var manager = new ServerActorManager();
         var created = false;
-        Func<ServerActor, KEvent, ValueTask>? processor = null;
-        processor = (actor, _) =>
+
+        async ValueTask ProcessAsync(ServerActor actor, KEvent _)
         {
             processed.Add(actor.Id);
             if (actor.Id == 1 && !created)
             {
                 created = true;
-                manager.Create(3, processor);
+                manager.Create(3, ProcessAsync);
             }
 
-            return ValueTask.CompletedTask;
-        };
+            await ValueTask.CompletedTask;
+        }
 
-        var first = manager.Create(1, processor);
-        manager.Create(2, processor);
+        var first = manager.Create(1, ProcessAsync);
+        manager.Create(2, ProcessAsync);
         await manager.TickAsync();
 
         first.QueueingEvent(new KEvent());
