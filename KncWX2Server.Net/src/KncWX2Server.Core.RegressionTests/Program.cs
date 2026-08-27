@@ -28,6 +28,7 @@ static class Program
         await PerformerRoutingPreservesLegacyDispatchSemantics();
         LoginDispatchRegression.RejectsUnprovenLoginPayloads();
         ServerIdentityRegression.AppliesNativeKServerInfoFields();
+        ServerListRegression.ReplacesAndSnapshotsServerGroups();
         Console.WriteLine("All KncWX2Server core regression checks passed.");
         return 0;
     }
