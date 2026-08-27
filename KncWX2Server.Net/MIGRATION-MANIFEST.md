@@ -4,7 +4,7 @@ Updated: 2026-08-27
 
 ## Scope
 
-This stage covers the shared serializer/security foundation, TCP transport/session layer, the server-side actor/event pipeline, the shared local performer routing contract, and the audit of the Login role dispatch frontier. `CA.exe.c` is explicitly excluded from this migration.
+This stage covers the shared serializer/security foundation, TCP transport/session layer, the server-side actor/event pipeline, the shared local performer routing contract, and the audit plus explicit boundary for the Login role dispatch frontier. `CA.exe.c` is explicitly excluded from this migration.
 
 ## Target stack
 
@@ -39,7 +39,8 @@ ServerEventRouter
         └─ remote-route result for proxy-required paths
         ↓
 Role-specific event dispatch
-        ├─ Login [blocked: typed payload/serializer contract]
+        ├─ Login
+        │    └─ explicit typed-payload boundary [blocked until packet contract]
         ├─ Center
         ├─ Channel
         └─ Game
@@ -99,14 +100,12 @@ Native Login is divided into a `KLoginServer : KBaseServer` and per-connection `
 - `KLoginUser::RoutePacket()` is performer-aware and may target BaseServer, DB, room, authentication or proxy paths instead of being a direct socket send.
 - `KLoginUser::OnDestroy()` unregisters users from `KLoginSimLayer` and performs additional conditional cleanup.
 
-The managed Login project still contains only `Program.cs` plus its project file. `KncServerHost` currently creates a generic `ServerActor` and installs a shared placeholder processor. There is no trustworthy managed Login packet registry/serializer layer yet.
+The managed Login project now contains an explicit `LoginEventDispatcher` boundary, but it deliberately does not claim any concrete Login opcode is ported. The dispatcher classifies a Login-user event as `TypedPayloadContractMissing` until a source-proven concrete packet declaration and serializer exist; non-Login destinations are rejected from the Login role boundary. This keeps the migration AOT-friendly and prevents generic/guessing fallbacks.
 
-Therefore the full Login opcode switch is **blocked**, not approximated. The next implementation must establish concrete packet declarations, serializer mappings, FSM requirements, caller/callee behavior and service ownership for one source-proven Login event before wiring a real handler.
-
-Candidate events were re-audited:
+## Candidate event re-audit
 
 - `ELG_USER_DISCONNECT_REQ`: not a safe no-payload starter. Its handler calls `UnRegUser`, writes `DBE_UPDATE_IS_LOGIN_NOT`, and branches ACK behavior based on request event semantics; optional account-count data is also profile dependent.
-- `DBE_VERIFY_SERVER_CONNECT_ACK`: source is explicit, but its handler mutates server identity/state, checks duplicate UID, transitions to authenticated state, and depends on BaseServer performer registration plus the concrete packet contract.
+- `DBE_VERIFY_SERVER_CONNECT_ACK`: strongest next candidate. Its handler mutates server identity/state, checks duplicate UID, transitions to authenticated state, and depends on BaseServer performer registration plus the concrete packet contract.
 - Large authentication/register events were rejected as first targets because their behavior depends on multiple legacy build profiles and external service managers.
 
 ## Performer source-of-truth correction
@@ -135,7 +134,12 @@ Legacy outer TCP framing remains `[TotalLength:u16 LE, inclusive] + SecureBuffer
 
 ## Regression coverage
 
-`KncWX2Server.Core.RegressionTests` currently verifies:
+`KncWX2Server.Core.RegressionTests` now additionally verifies the Login dispatch boundary:
+
+- Login-user destinations are classified as `TypedPayloadContractMissing` rather than silently accepted or guessed.
+- non-Login destinations are rejected from Login role dispatch.
+
+Existing regression coverage remains:
 
 - FIFO actor event order
 - deferred actor insertion/deletion
@@ -145,13 +149,13 @@ Legacy outer TCP framing remains `[TotalLength:u16 LE, inclusive] + SecureBuffer
 - local `PC_USER` routing
 - partial local/remote-required user routing
 - internal `PC_GAME_DB_2ND` routing through an internal performer queue
-- existing serializer, UTF-16LE, compression, KEvent, TCP framing, SecureBuffer, ICV and replay checks
-
-No Login opcode test was added because no Login handler was fabricated.
+- serializer, UTF-16LE, compression, KEvent, TCP framing, SecureBuffer, ICV and replay checks
 
 ## Build verification
 
 Not executed successfully in the available execution environment. The container has no installed .NET SDK, so `dotnet restore`, `dotnet build`, `dotnet test`, and NativeAOT publish cannot truthfully be reported as successful.
+
+GitHub Actions also returned no workflow run/status for the latest branch HEAD, so no CI success is claimed.
 
 ## Status
 
@@ -161,18 +165,19 @@ Not executed successfully in the available execution environment. The container 
 - Ordered actor/event pipeline: completed
 - Verified local performer routing subset: completed
 - Performer routing source-of-truth cleanup: completed
-- Login role-specific event dispatch: blocked
+- Login dispatch boundary: ported-partial
+- Login role-specific opcode handlers: blocked
 
 ## Known partial / blocked areas
 
 - Native proxy/remote forwarding is not yet implemented because `KProxyManager` / cross-server transport ownership has not been converted.
-- `PC_CHARACTER` / room routing still requires their native manager contracts before implementation.
+- `PC_CHARACTER` / room routing still requires their native manager contracts.
 - `PC_SERVER` local base-server routing still requires the managed equivalent of native `KBaseServer` performer registration.
-- Login role-specific opcode dispatch is blocked until the typed event-payload/serializer contract exists.
+- Login concrete opcode dispatch is blocked until typed event-payload contracts exist.
 - `KEvent::SetData<T>` generic payload serialization remains blocked until its strongly typed payload contract is established from real callers.
 - Native conditional build-profile selection is still not bound to an effective managed runtime profile.
 - Mail and several external service managers are not yet converted.
 
 ## Next subsystem
 
-**First source-proven typed Login event contract.** `DBE_VERIFY_SERVER_CONNECT_ACK` is currently the strongest candidate, but only after the concrete packet declaration/serialization and `KBaseServer` registration path are fully traced. The next round must not infer an opcode or payload layout merely from names.
+**First source-proven typed Login event contract:** `DBE_VERIFY_SERVER_CONNECT_ACK`. Before implementing its handler, fully trace its concrete packet declaration, serializer mapping, `KBaseServer` registration/ownership, state transition, duplicate UID behavior, caller/callee chain, shutdown behavior and all effective build-profile branches. No opcode or payload layout should be inferred from names alone.
