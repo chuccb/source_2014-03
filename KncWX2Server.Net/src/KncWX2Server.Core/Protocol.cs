@@ -20,10 +20,10 @@ public static class KncProtocol
 
     public static int ValidateFrameLength(ushort frameLength, int maxFrameSize = MaxFrameSize)
     {
-        if (maxFrameSize < MinSecureFrameSize || maxFrameSize > ushort.MaxValue)
+        if (maxFrameSize < FrameLengthFieldSize || maxFrameSize > ushort.MaxValue)
             throw new ArgumentOutOfRangeException(nameof(maxFrameSize));
-        if (frameLength < MinSecureFrameSize)
-            throw new InvalidDataException($"Legacy frame length {frameLength} is smaller than the secure-buffer minimum.");
+        if (frameLength < FrameLengthFieldSize)
+            throw new InvalidDataException($"Legacy frame length {frameLength} is smaller than the two-byte length field.");
         if (frameLength > maxFrameSize)
             throw new InvalidDataException($"Legacy frame length {frameLength} exceeds {maxFrameSize} bytes.");
         return frameLength - FrameLengthFieldSize;
@@ -45,7 +45,8 @@ public static class KncProtocol
         var secureLength = ValidateFrameLength(frameLength, maxFrameSize);
 
         var secureBuffer = GC.AllocateUninitializedArray<byte>(secureLength);
-        await stream.ReadExactlyAsync(secureBuffer, cancellationToken).ConfigureAwait(false);
+        if (secureLength != 0)
+            await stream.ReadExactlyAsync(secureBuffer, cancellationToken).ConfigureAwait(false);
         return secureBuffer;
     }
 
