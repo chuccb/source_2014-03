@@ -3,60 +3,58 @@ using System.Net.Sockets;
 
 namespace KncWX2Server.Core;
 
-public readonly record struct Packet(ushort Opcode, ushort Flags, ReadOnlyMemory<byte> Payload);
-
+/// <summary>Legacy KNC TCP frame: a little-endian USHORT containing the total frame size, including the size field itself.</summary>
 public static class KncProtocol
 {
-    public const int HeaderSize = sizeof(int) + sizeof(ushort) + sizeof(ushort);
-    public const int MaxPayloadBytes = 1024 * 1024;
+    public const int FrameLengthFieldSize = sizeof(ushort);
+    public const int MaxFrameSize = 32768;
+    public const int MinSecureFrameSize = FrameLengthFieldSize + 2 + 4 + 8 + 8 + 10;
 
-    public static async ValueTask<Packet> ReadAsync(NetworkStream stream, int maxPayloadBytes, CancellationToken cancellationToken)
+    public static ushort ReadFrameLength(ReadOnlySpan<byte> header)
     {
-        var header = new byte[HeaderSize];
-        await stream.ReadExactlyAsync(header, cancellationToken);
+        if (header.Length < FrameLengthFieldSize)
+            throw new InvalidDataException("The legacy frame header is incomplete.");
 
-        var payloadLength = BinaryPrimitives.ReadInt32LittleEndian(header);
-        var opcode = BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(sizeof(int)));
-        var flags = BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(sizeof(int) + sizeof(ushort)));
-
-        if ((uint)payloadLength > (uint)maxPayloadBytes)
-            throw new InvalidDataException($"Packet payload {payloadLength} exceeds configured limit {maxPayloadBytes}.");
-
-        var payload = GC.AllocateUninitializedArray<byte>(payloadLength);
-        if (payloadLength != 0)
-            await stream.ReadExactlyAsync(payload, cancellationToken);
-
-        return new(opcode, flags, payload);
+        return BinaryPrimitives.ReadUInt16LittleEndian(header);
     }
 
-    public static async ValueTask WriteAsync(NetworkStream stream, Packet packet, CancellationToken cancellationToken)
+    public static int ValidateFrameLength(ushort frameLength)
     {
-        if (packet.Payload.Length > MaxPayloadBytes)
-            throw new InvalidDataException($"Packet payload {packet.Payload.Length} exceeds the protocol limit {MaxPayloadBytes}.");
-
-        var buffer = GC.AllocateUninitializedArray<byte>(HeaderSize + packet.Payload.Length);
-        var span = buffer.AsSpan();
-
-        BinaryPrimitives.WriteInt32LittleEndian(span, packet.Payload.Length);
-        BinaryPrimitives.WriteUInt16LittleEndian(span[sizeof(int)..], packet.Opcode);
-        BinaryPrimitives.WriteUInt16LittleEndian(span[(sizeof(int) + sizeof(ushort))..], packet.Flags);
-        packet.Payload.Span.CopyTo(span[HeaderSize..]);
-
-        await stream.WriteAsync(buffer, cancellationToken);
+        if (frameLength < MinSecureFrameSize)
+            throw new InvalidDataException($"Legacy frame length {frameLength} is smaller than the secure-buffer minimum.");
+        if (frameLength > MaxFrameSize)
+            throw new InvalidDataException($"Legacy frame length {frameLength} exceeds {MaxFrameSize} bytes.");
+        return frameLength - FrameLengthFieldSize;
     }
 
-    public static bool TryReadHeader(ReadOnlySpan<byte> header, out int payloadLength, out ushort opcode, out ushort flags)
+    public static async ValueTask<byte[]> ReadSecureFrameAsync(
+        NetworkStream stream,
+        byte[] headerBuffer,
+        CancellationToken cancellationToken)
     {
-        payloadLength = 0;
-        opcode = 0;
-        flags = 0;
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(headerBuffer);
+        if (headerBuffer.Length < FrameLengthFieldSize)
+            throw new ArgumentException("Header buffer must contain at least two bytes.", nameof(headerBuffer));
 
-        if (header.Length < HeaderSize)
-            return false;
+        await stream.ReadExactlyAsync(headerBuffer.AsMemory(0, FrameLengthFieldSize), cancellationToken).ConfigureAwait(false);
+        var frameLength = ReadFrameLength(headerBuffer);
+        var secureLength = ValidateFrameLength(frameLength);
 
-        payloadLength = BinaryPrimitives.ReadInt32LittleEndian(header);
-        opcode = BinaryPrimitives.ReadUInt16LittleEndian(header[sizeof(int)..]);
-        flags = BinaryPrimitives.ReadUInt16LittleEndian(header[(sizeof(int) + sizeof(ushort))..]);
-        return payloadLength >= 0;
+        var secureBuffer = GC.AllocateUninitializedArray<byte>(secureLength);
+        await stream.ReadExactlyAsync(secureBuffer, cancellationToken).ConfigureAwait(false);
+        return secureBuffer;
+    }
+
+    public static byte[] CreateFrame(ReadOnlySpan<byte> secureBuffer)
+    {
+        var totalLength = checked(FrameLengthFieldSize + secureBuffer.Length);
+        if (totalLength < MinSecureFrameSize || totalLength > MaxFrameSize)
+            throw new InvalidDataException($"Legacy frame length {totalLength} is outside the supported range.");
+
+        var frame = GC.AllocateUninitializedArray<byte>(totalLength);
+        BinaryPrimitives.WriteUInt16LittleEndian(frame, checked((ushort)totalLength));
+        secureBuffer.CopyTo(frame.AsSpan(FrameLengthFieldSize));
+        return frame;
     }
 }
