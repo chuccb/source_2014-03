@@ -19,9 +19,15 @@ public sealed class ServerActor
 
     public long Id { get; }
     public long Uid { get; internal set; }
-    public string Name { get; internal set; } = string.Empty;
+    public string Name { get; private set; } = string.Empty;
     public ServerEventQueue Events => _events;
     public FsmType? Fsm => _fsm;
+
+    public void SetName(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        Name = name;
+    }
 
     public void SetFsm(FsmType fsm, int initialState)
     {
