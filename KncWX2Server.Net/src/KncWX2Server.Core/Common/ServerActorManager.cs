@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 
@@ -72,43 +73,63 @@ public sealed class ServerActorManager
 
     public async ValueTask TickAsync()
     {
-        ServerActor[] actors;
+        ServerActor[]? rentedActors = null;
+        var actorCount = 0;
+
         lock (_gate)
-            actors = [.. _actors];
-
-        // Native KActorManager::Tick(): process the existing actor vector first.
-        foreach (var actor in actors)
-            await actor.TickAsync().ConfigureAwait(false);
-
-        // Native order: deferred deletion, then deferred addition.
-        while (_pendingDelete.TryDequeue(out var actor))
         {
-            lock (_gate)
+            actorCount = _actors.Count;
+            if (actorCount != 0)
             {
-                if (actor.Uid == 0)
-                {
-                    _cancelledBeforeAdd.Add(actor.Id);
-                    _pendingAddById.Remove(actor.Id);
-                    continue;
-                }
-
-                if (_actorsByUid.Remove(actor.Uid, out var registered))
-                    _actors.Remove(registered);
+                rentedActors = ArrayPool<ServerActor>.Shared.Rent(actorCount);
+                _actors.CopyTo(rentedActors, 0);
             }
         }
 
-        while (_pendingAdd.TryDequeue(out var actor))
+        try
         {
-            lock (_gate)
+            // Native KActorManager::Tick(): process the existing actor vector first.
+            if (rentedActors is not null)
             {
-                _pendingAddById.Remove(actor.Id);
-                if (_cancelledBeforeAdd.Remove(actor.Id))
-                    continue;
-
-                actor.Uid = GenerateTemporaryUid();
-                if (_actorsByUid.TryAdd(actor.Uid, actor))
-                    _actors.Add(actor);
+                for (var i = 0; i < actorCount; i++)
+                    await rentedActors[i].TickAsync().ConfigureAwait(false);
             }
+
+            // Native order: deferred deletion, then deferred addition.
+            while (_pendingDelete.TryDequeue(out var actor))
+            {
+                lock (_gate)
+                {
+                    if (actor.Uid == 0)
+                    {
+                        _cancelledBeforeAdd.Add(actor.Id);
+                        _pendingAddById.Remove(actor.Id);
+                        continue;
+                    }
+
+                    if (_actorsByUid.Remove(actor.Uid, out var registered))
+                        _actors.Remove(registered);
+                }
+            }
+
+            while (_pendingAdd.TryDequeue(out var actor))
+            {
+                lock (_gate)
+                {
+                    _pendingAddById.Remove(actor.Id);
+                    if (_cancelledBeforeAdd.Remove(actor.Id))
+                        continue;
+
+                    actor.Uid = GenerateTemporaryUid();
+                    if (_actorsByUid.TryAdd(actor.Uid, actor))
+                        _actors.Add(actor);
+                }
+            }
+        }
+        finally
+        {
+            if (rentedActors is not null)
+                ArrayPool<ServerActor>.Shared.Return(rentedActors, clearArray: true);
         }
     }
 
