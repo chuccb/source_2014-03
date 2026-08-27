@@ -31,6 +31,7 @@ KncServerSession
 ServerActor event queue
         ↓
 ServerActorManager
+        ├─ deterministic actor insertion order
         ├─ actor Tick
         ├─ deferred delete
         └─ deferred add / temporary UID
@@ -61,6 +62,7 @@ Important native semantics preserved:
 - `KPerformer::QueueingEvent` is FIFO and synchronized; `Tick()` consumes the queue until empty.
 - `KActor` derives from `KSession` and supplies the multi-thread-safe FSM surface; the managed architecture keeps socket ownership in `KncServerSession` and makes actor state an explicit composition boundary.
 - `KActorManager::Tick()` order is actor processing first, deferred delete second, deferred add third.
+- `KActorManager::m_vecAct` is an ordered vector; managed actor processing therefore uses a list rather than dictionary enumeration for tick order.
 - `KActorManager::ReserveAdd()` and `ReserveDelete()` are intentionally deferred mutations.
 - temporary actor UID uses bit 62 as the marker with a 40-bit pure UID region.
 - `FSMclass::StateTransition()` returns the current state when there is no transition, and changes to state 0 only when the current state itself cannot be resolved.
@@ -68,16 +70,16 @@ Important native semantics preserved:
 
 ## Managed actor implementation
 
-- `Common/ServerEventQueue.cs`: lock-free/BCL concurrent FIFO with queue-depth statistics.
+- `Common/ServerEventQueue.cs`: BCL concurrent FIFO with queue-depth statistics.
 - `Common/ServerActor.cs`: explicit actor event queue and optional FSM state; event processing occurs only from manager ticks.
-- `Common/ServerActorManager.cs`: active UID registry, deferred add/delete, UID migration, multicast queueing, exact tick ordering, temporary UID generation and pre-add cancellation hardening.
+- `Common/ServerActorManager.cs`: ordered active actor list plus UID lookup, deferred add/delete, UID migration, multicast queueing, exact tick ordering, temporary UID generation and pre-add cancellation hardening.
 - `Host/KncServerHost.cs`: creates one actor per accepted session, queues decoded session events into that actor, runs the manager tick loop, and reserves actor deletion when a session ends.
 
-The pre-add cancellation check closes a lifetime hole that could otherwise leave an actor registered after a session disconnected before the next manager tick. It does not alter normal ordering.
+The manager was reworked after source-level review found that `ConcurrentDictionary.Values` would not preserve native `m_vecAct` insertion order. The current implementation therefore keeps a list for processing order and a dictionary solely for UID lookup.
 
 ## Regression coverage
 
-`KncWX2Server.Core.RegressionTests` now verifies:
+`KncWX2Server.Core.RegressionTests` verifies:
 
 - FIFO actor event order
 - deferred actor insertion
@@ -85,6 +87,7 @@ The pre-add cancellation check closes a lifetime hole that could otherwise leave
 - temporary UID bit-62 marker
 - deferred deletion
 - pre-add deletion does not create a ghost actor
+- deterministic native actor insertion order
 - existing serializer, KEvent, TCP framing, SecureBuffer, ICV and replay regressions
 
 ## Build verification
@@ -95,6 +98,13 @@ Not executed successfully in the available execution environment. The container 
 
 Serializer/security, exact legacy TCP framing, per-session security/lifetime, and the shared actor/event ownership pipeline are source-level cross-checked and committed on the rewrite branch. The business opcode layer is deliberately not fabricated.
 
+## Remaining partial / blocked items
+
+- Native `GSGameDBThread2nd` role-specific packet dispatch has not yet been ported because the effective `#ifdef` profile and complete packet declaration/serializer chain are not yet closed.
+- Native `KEvent::SetData<T>` is only partially represented; no reflection/dynamic serializer registry has been introduced.
+- Native `KSimObject::GetRefCount()` has no exact managed shared-pointer equivalent and remains partial.
+- Mail/auth/billing subsystems remain inventory-only until their profile-specific dependencies are closed.
+
 ## Next subsystem
 
-**Role-specific event dispatch** is now the highest-leverage next stage. Start by mapping the common/system event switch and the smallest shared manager routes, then move through Login, Center, Channel and Game. For every event, identify its declaration, packet structure, serializer fields, caller, callee, FSM state requirements, response event, error path, and persistence/external-service side effects before implementation.
+**Role-specific event dispatch** is now the highest-leverage next stage. Begin with the common/system event switch and the first role whose event declaration, packet layout, caller/callee, FSM guards and error/ACK path can all be proven from source. Do not fabricate handlers for unresolved build-profile branches.
