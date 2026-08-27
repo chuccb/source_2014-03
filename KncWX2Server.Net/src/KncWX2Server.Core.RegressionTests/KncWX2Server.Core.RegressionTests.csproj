@@ -7,5 +7,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../KncWX2Server.Core/KncWX2Server.Core.csproj" />
+    <ProjectReference Include="../KncWX2Server.LoginServer/KncWX2Server.LoginServer.csproj" />
   </ItemGroup>
 </Project>
