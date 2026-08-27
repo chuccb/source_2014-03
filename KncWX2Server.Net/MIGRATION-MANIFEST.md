@@ -4,16 +4,16 @@ Updated: 2026-08-27
 
 ## Scope
 
-This stage covers the shared serializer/security foundation plus the server-side TCP transport/session layer. `CA.exe.c` is explicitly excluded from the migration scope.
+This stage covers the shared serializer/security foundation, TCP transport/session layer, and the server-side actor/event pipeline. `CA.exe.c` is explicitly excluded from this migration.
 
 ## Target stack
 
 - C# 15 preview
-- .NET 11 preview (`net11.0`)
+- latest repository-targeted .NET 11 (`net11.0`)
 - NativeAOT for executable projects
 - `.slnx` solution format
 
-The repository is configured in `Directory.Build.props` for `net11.0`, preview C#, `IsAotCompatible=true`, server GC and Tiered PGO, with NativeAOT enabled for executable projects.
+The repository is configured for preview C#, `net11.0`, AOT compatibility, server GC and Tiered PGO, with NativeAOT enabled for executable projects.
 
 ## Current dependency graph
 
@@ -24,88 +24,77 @@ SecurityAssociation / SADB / SecureBuffer
         ↓
 KEvent / KPerformerInfo
         ↓
-2-byte total-length TCP framing
-        ↓
-KncServerHost
+Legacy TCP framing
         ↓
 KncServerSession
-        ├─ SPI 0 security handshake
-        ├─ no-replay-window packet authentication
-        ├─ DES-CBC decrypt / ICV validation
-        ├─ KEvent deserialization + optional buffer decompression
-        ├─ heartbeat timeout
-        └─ serialized send path
         ↓
-server event dispatch
+ServerActor event queue
         ↓
-actor/session managers
+ServerActorManager
+        ├─ actor Tick
+        ├─ deferred delete
+        └─ deferred add / temporary UID
         ↓
-Login / Center / Channel / Game handlers
+Role-specific event dispatch
         ↓
-Persistence / shared state
+Login / Center / Channel / Game service state
+        ↓
+Persistence / external service managers
 ```
 
-## Transport source cross-check
+## Actor/event source cross-check
 
-Checked the declarations and implementations of:
+Verified native declarations and implementations:
 
-- `KncWX2Server/Common/NetLayer.h/.cpp`
-- `KncWX2Server/Common/Socket/Session.h/.cpp`
-- `KncWX2Server/Common/Socket/SocketObject.h/.cpp`
-- `KncWX2Server/Common/Socket/IOCP.h/.cpp`
-- `KncWX2Server/Common/Socket/IOThread.h/.cpp`
-- `KncWX2Server/Common/Socket/Overlapped.h`
-- `KncWX2Server/Common/Socket/Accepter.h/.cpp`
+- `KncWX2Server/Common/Performer.h/.cpp`
+- `KncWX2Server/Common/Actor.h/.cpp`
+- `KncWX2Server/Common/ActorManager.h/.cpp`
+- `KncWX2Server/Common/SimLayer.h/.cpp`
+- `KncWX2Server/Common/FSM/FSMclass.h/.cpp`
+- `KncWX2Server/Common/FSM/FSMstate.h/.cpp`
+- `KncWX2Server/Common/FSM/support_FSM.h`
 - `KncWX2Server/Common/Event.h/.cpp`
-- `KncWX2Server/Common/EventID_System.h`
-- `KncWX2Server/Common/ActorFactory.h`
-- `KncWX2Server/Common/ActorManager.h`
-- `KncWX2Server/Common/KncUidType.h`
-- role NetLayer headers/implementation for Login, Channel, Global and Game
+- `KncWX2Server/Common/KncUidType.h/.cpp`
 
-Also rechecked the security and serializer SDK sources, including `KNCSDK/Include/KncSecurity/SecureBuffer.h/.cpp`, `KNCSDK/Include_2010/KncSecurity/ByteStream.h/.cpp`, `KNCSDK/Include_2010/KncSecurity/SecurityAssociation.h/.cpp`, `KNCSDK/Include/KncSecurity/KncSecurity.h`, and `KNCSDK/Include/Serializer/Serializer.h`.
+Important native semantics preserved:
 
-## Important corrections found during this stage
+- `KPerformer::QueueingEvent` is FIFO and synchronized; `Tick()` consumes the queue until empty.
+- `KActor` derives from `KSession` and supplies the multi-thread-safe FSM surface; the managed architecture keeps socket ownership in `KncServerSession` and makes actor state an explicit composition boundary.
+- `KActorManager::Tick()` order is actor processing first, deferred delete second, deferred add third.
+- `KActorManager::ReserveAdd()` and `ReserveDelete()` are intentionally deferred mutations.
+- temporary actor UID uses bit 62 as the marker with a 40-bit pure UID region.
+- `FSMclass::StateTransition()` returns the current state when there is no transition, and changes to state 0 only when the current state itself cannot be resolved.
+- `FSMstate` transition order and delete compaction are retained by the managed FSM conversion.
 
-1. The earlier managed `Protocol.cs` used an invented `int payloadLength + ushort opcode + ushort flags` header. It was removed. The real server protocol is a little-endian `USHORT` total frame length followed by a `KSecureBuffer`.
-2. `KPerformerInfo.MaxUidCount` was corrected from 100 to the native `MAX_UID_NUM=2000`.
-3. Host socket defaults were corrected: legacy Nagle is enabled by default, and server-side sequence checking is disabled by default. Explicit options can enable `--no-delay` and `--sequence-check`.
-4. Session heartbeat state now refreshes only after an authenticated/decrypted packet has been successfully deserialized as `KEvent`, matching the native unproxy session semantics.
-5. Session lifetime now cancels the peer heartbeat/receive task immediately when either completes, preventing a completed socket from leaving a monitor task alive.
-6. Complete but undersized frames are not rejected by the framing layer merely for being smaller than the secure-buffer minimum; they proceed to the security validation path, matching native receive behavior for such packets.
-7. The session transport uses BCL async sockets instead of exposing the old WinSock/IOCP implementation directly. This changes the implementation mechanism but not the observable KNC frame/security contract.
+## Managed actor implementation
 
-## Managed transport implementation
+- `Common/ServerEventQueue.cs`: lock-free/BCL concurrent FIFO with queue-depth statistics.
+- `Common/ServerActor.cs`: explicit actor event queue and optional FSM state; event processing occurs only from manager ticks.
+- `Common/ServerActorManager.cs`: active UID registry, deferred add/delete, UID migration, multicast queueing, exact tick ordering, temporary UID generation and pre-add cancellation hardening.
+- `Host/KncServerHost.cs`: creates one actor per accepted session, queues decoded session events into that actor, runs the manager tick loop, and reserves actor deletion when a session ends.
 
-- `KncProtocol.cs`: exact two-byte little-endian total-frame framing.
-- `KncServerSession.cs`: per-connection ownership, SPI/security state, handshake, authenticated receive loop, decompression, heartbeat monitor, ordered sends and auth-failure threshold.
-- `KncServerHost.cs`: listener ownership, Nagle option, session task registry and orderly cancellation.
-- `EventIds.cs`: verified system-event prefix needed by the session layer.
+The pre-add cancellation check closes a lifetime hole that could otherwise leave an actor registered after a session disconnected before the next manager tick. It does not alter normal ordering.
 
 ## Regression coverage
 
-`KncWX2Server.Core.RegressionTests` now checks:
+`KncWX2Server.Core.RegressionTests` now verifies:
 
-- serializer primitive wire order
-- UTF-16LE wide strings
-- SerBuffer compression round trip
-- legacy 2000 UID limit
-- exact KEvent serialized field order
-- two-byte little-endian total frame length
-- complete short frame acceptance by the framing layer
-- SecureBuffer round trip
-- ICV tamper rejection
-- no-replay-window duplicate rejection
-- replay-window duplicate/out-of-order/zero-sequence behavior
+- FIFO actor event order
+- deferred actor insertion
+- new actors are not ticked during the insertion tick
+- temporary UID bit-62 marker
+- deferred deletion
+- pre-add deletion does not create a ghost actor
+- existing serializer, KEvent, TCP framing, SecureBuffer, ICV and replay regressions
 
 ## Build verification
 
-Not executed successfully in the available execution environment. `dotnet --info` is unavailable because the container does not have the .NET SDK installed. No claim of successful `dotnet build`, test execution, or NativeAOT publish is made.
+Not executed successfully in the available execution environment. The container has no installed .NET SDK, so `dotnet build`, regression execution, and NativeAOT publish cannot truthfully be reported as successful.
 
 ## Current status
 
-The serializer/security foundation is cross-checked against the native implementation, and the shared server TCP transport/session boundary is implemented on the rewrite branch. The transport now consumes the exact native frame format rather than the earlier invented header.
+Serializer/security, exact legacy TCP framing, per-session security/lifetime, and the shared actor/event ownership pipeline are source-level cross-checked and committed on the rewrite branch. The business opcode layer is deliberately not fabricated.
 
 ## Next subsystem
 
-**Server-side event dispatch and actor/session manager** is now the highest-leverage next subsystem. Before implementing individual Login/Center/Channel/Game business handlers, map `KPerformer`, `KActor`, `KPerformer::QueueingEvent`, actor manager add/delete/tick behavior, FSM/event routing, thread ownership, and service-specific dispatch tables.
+**Role-specific event dispatch** is now the highest-leverage next stage. Start by mapping the common/system event switch and the smallest shared manager routes, then move through Login, Center, Channel and Game. For every event, identify its declaration, packet structure, serializer fields, caller, callee, FSM state requirements, response event, error path, and persistence/external-service side effects before implementation.
