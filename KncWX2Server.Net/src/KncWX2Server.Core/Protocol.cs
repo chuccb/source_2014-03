@@ -20,7 +20,7 @@ public static class KncProtocol
 
     public static int ValidateFrameLength(ushort frameLength, int maxFrameSize = MaxFrameSize)
     {
-        if (maxFrameSize < FrameLengthFieldSize || maxFrameSize > ushort.MaxValue)
+        if (maxFrameSize < FrameLengthFieldSize || maxFrameSize > MaxFrameSize)
             throw new ArgumentOutOfRangeException(nameof(maxFrameSize));
         if (frameLength < FrameLengthFieldSize)
             throw new InvalidDataException($"Legacy frame length {frameLength} is smaller than the two-byte length field.");
