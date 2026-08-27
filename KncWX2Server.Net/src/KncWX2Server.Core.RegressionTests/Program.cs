@@ -291,18 +291,18 @@ static class Program
 
         var serverEvents = new List<ushort>();
         Check(performers.Register(new ServerPerformer(
-            (uint)PerformerId.GsServer,
+            (uint)PerformerId.LoginServer,
             (_, @event) =>
             {
                 serverEvents.Add(@event.EventId);
                 return ValueTask.CompletedTask;
-            })), "register local server performer");
+            })), "register local Login server performer");
 
         var serverEvent = new KEvent();
-        serverEvent.SetData((uint)PerformerId.GsServer, ReadOnlySpan<long>.Empty, 300);
-        Check(router.Route(serverEvent) == ServerEventRouteResult.Routed, "local server performer route");
+        serverEvent.SetData((uint)PerformerId.LoginServer, ReadOnlySpan<long>.Empty, 300);
+        Check(router.Route(serverEvent) == ServerEventRouteResult.Routed, "local Login server performer route");
         await performers.TickAsync();
-        Check(serverEvents.Count == 1 && serverEvents[0] == 300, "local server performer dispatch");
+        Check(serverEvents.Count == 1 && serverEvents[0] == 300, "local Login server performer dispatch");
     }
 
     private static void AssertSequence(ReadOnlySpan<byte> expected, ReadOnlySpan<byte> actual, string name)
