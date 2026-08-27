@@ -288,6 +288,21 @@ static class Program
         Check(router.Route(internalEvent) == ServerEventRouteResult.Routed, "internal performer route");
         await performers.TickAsync();
         Check(internalEvents.Count == 1 && internalEvents[0] == 200, "internal performer FIFO dispatch");
+
+        var serverEvents = new List<ushort>();
+        Check(performers.Register(new ServerPerformer(
+            (uint)PerformerId.GsServer,
+            (_, @event) =>
+            {
+                serverEvents.Add(@event.EventId);
+                return ValueTask.CompletedTask;
+            })), "register local server performer");
+
+        var serverEvent = new KEvent();
+        serverEvent.SetData((uint)PerformerId.GsServer, ReadOnlySpan<long>.Empty, 300);
+        Check(router.Route(serverEvent) == ServerEventRouteResult.Routed, "local server performer route");
+        await performers.TickAsync();
+        Check(serverEvents.Count == 1 && serverEvents[0] == 300, "local server performer dispatch");
     }
 
     private static void AssertSequence(ReadOnlySpan<byte> expected, ReadOnlySpan<byte> actual, string name)
