@@ -1,4 +1,6 @@
+using System.Net;
 using System.Net.Sockets;
+using KncWX2Server.Core;
 using KncWX2Server.Core.Common;
 using KncWX2Server.Core.Common.Security;
 using KncWX2Server.Core.Common.Serialization;
@@ -6,8 +8,8 @@ using KncWX2Server.Core.Common.Serialization;
 namespace KncWX2Server.Host;
 
 /// <summary>
-/// Owns one accepted TCP connection. All socket, security-association, receive,
-/// and send state belongs to this session instance.
+/// Owns one accepted TCP connection. Socket, security-association and receive/send
+/// state have one explicit lifetime, matching the legacy session ownership model.
 /// </summary>
 public sealed class KncServerSession
 {
@@ -46,15 +48,27 @@ public sealed class KncServerSession
 
     public long SessionId { get; }
     public ushort Spi => _spi;
-    public int PacketAuthFailCount => _packetAuthFailCount;
+    public int PacketAuthFailCount => Volatile.Read(ref _packetAuthFailCount);
     public EndPoint? RemoteEndPoint => _client.Client.RemoteEndPoint;
 
     public async Task RunAsync()
     {
+        var token = _sessionCancellation.Token;
+
         try
         {
-            await SendSecurityAssociationAsync(_sessionCancellation.Token).ConfigureAwait(false);
-            await RunReceiveLoopAsync(_sessionCancellation.Token).ConfigureAwait(false);
+            await SendSecurityAssociationAsync(token).ConfigureAwait(false);
+
+            var receiveTask = RunReceiveLoopAsync(token);
+            var heartbeatTask = MonitorHeartbeatAsync(token);
+            try
+            {
+                await Task.WhenAll(receiveTask, heartbeatTask).ConfigureAwait(false);
+            }
+            finally
+            {
+                _sessionCancellation.Cancel();
+            }
         }
         catch (OperationCanceledException) when (_sessionCancellation.IsCancellationRequested)
         {
@@ -63,6 +77,9 @@ public sealed class KncServerSession
         {
         }
         catch (IOException)
+        {
+        }
+        catch (SocketException)
         {
         }
         finally
@@ -83,7 +100,7 @@ public sealed class KncServerSession
 
     public void Disconnect() => _sessionCancellation.Cancel();
 
-    public async ValueTask SendEventAsync(KEvent @event, CancellationToken cancellationToken)
+    public async ValueTask SendEventAsync(KEvent @event, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(@event);
 
@@ -98,9 +115,8 @@ public sealed class KncServerSession
                 || !serializer.EndWriting())
                 throw new InvalidDataException("Failed to serialize KEvent.");
 
-            var payload = serialized.ToArray();
             var secure = new SecureBuffer(_spi, _security);
-            if (!secure.CreateNoReplayWindow(payload))
+            if (!secure.CreateNoReplayWindow(serialized.Data))
                 throw new InvalidDataException("Failed to create a legacy secure packet.");
 
             var frame = KncProtocol.CreateFrame(secure.Data);
@@ -125,8 +141,8 @@ public sealed class KncServerSession
             || !serializer.EndWriting())
             throw new InvalidDataException("Failed to serialize the security-association handshake.");
 
-        // The legacy server sends the handshake under SPI 0/default keys and
-        // only then switches the session to the new association.
+        // Legacy ordering is observable: handshake is sent with SPI 0/default SA,
+        // then the session switches to the generated SPI.
         await SendEventWithSpiAsync(eventPacket, spi: 0, cancellationToken).ConfigureAwait(false);
         _spi = newSpi;
     }
@@ -160,8 +176,10 @@ public sealed class KncServerSession
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            var secureBytes = await KncProtocol.ReadSecureFrameAsync(_stream, _frameHeader, cancellationToken).ConfigureAwait(false);
-            Volatile.Write(ref _lastReceiveTimestamp, Environment.TickCount64);
+            var secureBytes = await KncProtocol.ReadSecureFrameAsync(
+                _stream,
+                _frameHeader,
+                cancellationToken).ConfigureAwait(false);
 
             var secure = new SecureBuffer(_spi, secureBytes, _security);
             if (!secure.IsAuthenticNoReplayWindow(checkSequenceNumber: _options.CheckSequenceNumbers))
@@ -183,9 +201,14 @@ public sealed class KncServerSession
                 return;
             }
 
+            // Legacy KSession renews its heartbeat timestamp only after a packet
+            // has passed authentication/decryption and has been parsed as KEvent.
+            Volatile.Write(ref _lastReceiveTimestamp, Environment.TickCount64);
+
             if (@event.EventId == SystemEventIds.HeartBeat)
                 continue;
 
+            // A post-handshake AcceptConnectionNot is not a valid server-side event.
             if (@event.EventId == SystemEventIds.AcceptConnectionNot)
             {
                 Disconnect();
@@ -196,11 +219,11 @@ public sealed class KncServerSession
         }
     }
 
-    private bool TryDeserializeEvent(ByteStream payload, out KEvent @event)
+    private static bool TryDeserializeEvent(ByteStream payload, out KEvent @event)
     {
         @event = new KEvent();
         var serialized = new SerBuffer();
-        serialized.LoadSerialized(payload.Span, compressed: false);
+        serialized.Write(payload.Span);
 
         var serializer = new KSerializer();
         if (!serializer.BeginReading(serialized))
@@ -209,24 +232,30 @@ public sealed class KncServerSession
         if (!serializer.Get(@event) || !serializer.EndReading())
             return false;
 
-        if (@event.Buffer.IsCompressed && !@event.Buffer.Uncompress())
-            return false;
-
-        return true;
+        return !@event.Buffer.IsCompressed || @event.Buffer.Uncompress();
     }
 
     private void HandleAuthenticationFailure()
     {
-        var count = ++_packetAuthFailCount;
+        var count = Interlocked.Increment(ref _packetAuthFailCount);
         if (count > _options.PacketAuthFailLimit)
             Disconnect();
     }
 
-    public bool IsHeartbeatTimedOut()
+    private async Task MonitorHeartbeatAsync(CancellationToken cancellationToken)
     {
-        if (_sessionCancellation.IsCancellationRequested)
-            return true;
-
-        return Environment.TickCount64 - Volatile.Read(ref _lastReceiveTimestamp) > 60_000;
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (IsHeartbeatTimedOut())
+            {
+                Disconnect();
+                return;
+            }
+        }
     }
+
+    public bool IsHeartbeatTimedOut() =>
+        _sessionCancellation.IsCancellationRequested
+            || Environment.TickCount64 - Volatile.Read(ref _lastReceiveTimestamp) > 60_000;
 }
