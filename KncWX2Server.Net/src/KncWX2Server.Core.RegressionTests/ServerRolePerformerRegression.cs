@@ -4,15 +4,38 @@ using KncWX2Server.Core.Common.Routing;
 
 static class ServerRolePerformerRegression
 {
-    public static void MapsRolesToNativeServerPerformers()
+    public static async Task MapsRolesToNativeServerPerformers()
     {
         Check(ServerRolePerformer.GetPerformerId(ServerRole.Login) == (uint)PerformerId.LoginServer, "Login server performer");
         Check(ServerRolePerformer.GetPerformerId(ServerRole.Center) == (uint)PerformerId.CnServer, "Center server performer");
         Check(ServerRolePerformer.GetPerformerId(ServerRole.Channel) == (uint)PerformerId.ChannelServer, "Channel server performer");
         Check(ServerRolePerformer.GetPerformerId(ServerRole.Game) == (uint)PerformerId.GsServer, "Game server performer");
 
-        Check(PerformerRouting.GetPerformerClass(ServerRolePerformer.GetPerformerId(ServerRole.Login)) == PerformerRouting.PerformerServer, "role mapping is PC_SERVER");
-        Check(PerformerRouting.GetPerformerClass(ServerRolePerformer.GetPerformerId(ServerRole.Game)) == PerformerRouting.PerformerServer, "game mapping is PC_SERVER");
+        Check(PerformerRouting.GetPerformerClass(ServerRolePerformer.GetPerformerId(ServerRole.Login)) == PerformerRouting.PerformerServer, "Login mapping is PC_SERVER");
+        Check(PerformerRouting.GetPerformerClass(ServerRolePerformer.GetPerformerId(ServerRole.Game)) == PerformerRouting.PerformerServer, "Game mapping is PC_SERVER");
+
+        var manager = new ServerPerformerManager();
+        var received = 0;
+        var performer = manager.RegisterRole(
+            ServerRole.Login,
+            (_, _) =>
+            {
+                received++;
+                return ValueTask.CompletedTask;
+            });
+
+        Check(performer is not null, "register Login server role");
+        Check(performer.PerformerId == (uint)PerformerId.LoginServer, "registered Login performer id");
+
+        var @event = new KEvent();
+        @event.SetData(performer.PerformerId, ReadOnlySpan<long>.Empty, 301);
+        Check(manager.QueueingTo(performer.PerformerId, @event), "queue Login server event");
+        await manager.TickAsync();
+        Check(received == 1, "registered Login server event processed");
+
+        Check(manager.RegisterRole(ServerRole.Login, static (_, _) => ValueTask.CompletedTask) is null, "duplicate Login role rejected");
+        Check(manager.Remove(performer.PerformerId), "remove registered Login performer");
+        Check(manager.Get(performer.PerformerId) is null, "removed Login performer unavailable");
     }
 
     private static void Check(bool condition, string name)
