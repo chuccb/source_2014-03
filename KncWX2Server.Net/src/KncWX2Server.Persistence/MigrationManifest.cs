@@ -12,5 +12,5 @@ internal static class MigrationManifest
         new("004_gup_delete_unit_schema", "KncWX2Server.Persistence.Migrations.004_gup_delete_unit_schema.sql"),
     ];
 
-    public static ReadOnlySpan<MigrationDefinition> All => s_all;
+    public static IReadOnlyList<MigrationDefinition> All => s_all;
 }
