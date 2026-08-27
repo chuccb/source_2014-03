@@ -30,7 +30,7 @@ public sealed class GupDeleteUnitService
         var nowText = FormatDate(now);
         var itemCount = await CountActiveItemsAsync(connection, unitUid, cancellationToken).ConfigureAwait(false);
 
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken)
+        await using DbTransaction transaction = await connection.BeginTransactionAsync(cancellationToken)
             .ConfigureAwait(false);
 
         if (!await ExecuteExpectedAsync(
