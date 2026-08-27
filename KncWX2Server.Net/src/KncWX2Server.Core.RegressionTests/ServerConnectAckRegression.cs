@@ -25,6 +25,25 @@ static class ServerConnectAckRegression
         Check(ServerConnectAckSerialization.Write(writer, source), "write ACK");
         Check(writer.EndWriting(), "end ACK write");
 
+        AssertSequence(
+            [
+                0x00, 0x00, 0x00, 0x00,
+                0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                0x00, 0x00, 0x00, 0x11,
+                0x00, 0x00, 0x00, 0x17,
+                0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+                0x00, 0x00, 0x00, 0x0A,
+                0x4C, 0x00, 0x6F, 0x00, 0x67, 0x00, 0x69, 0x00, 0x6E, 0x00,
+                0x04, 0xB0,
+                0x00, 0x00, 0x00, 0x12,
+                0x31, 0x00, 0x32, 0x00, 0x37, 0x00, 0x2E, 0x00, 0x30, 0x00,
+                0x2E, 0x00, 0x30, 0x00, 0x2E, 0x00, 0x31, 0x00,
+                0x24, 0xB8,
+                0x01, 0x34, 0xD8, 0x85,
+            ],
+            buffer.Data,
+            "ACK exact wire field order and byte order");
+
         buffer.Reset();
         var reader = new KSerializer();
         Check(reader.BeginReading(buffer), "begin ACK read");
@@ -76,6 +95,11 @@ static class ServerConnectAckRegression
         Check(outcome.Result == LoginServerConnectAckResult.DuplicateUid, "duplicate UID detected");
         Check(outcome.DestroyActor, "duplicate UID destroys actor");
         Check(outcome.Response == packet && outcome.Response.Ok == 0, "success ACK remains the already-sent response");
+    }
+
+    private static void AssertSequence(ReadOnlySpan<byte> expected, ReadOnlySpan<byte> actual, string name)
+    {
+        Check(expected.SequenceEqual(actual), name);
     }
 
     private static void Check(bool condition, string name)
