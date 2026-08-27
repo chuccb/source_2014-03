@@ -24,18 +24,20 @@ static class ServerRolePerformerRegression
                 return ValueTask.CompletedTask;
             });
 
-        Check(performer is not null, "register Login server role");
-        Check(performer.PerformerId == (uint)PerformerId.LoginServer, "registered Login performer id");
+        if (performer is not { } registered)
+            throw new InvalidOperationException("Regression check failed: register Login server role");
+
+        Check(registered.PerformerId == (uint)PerformerId.LoginServer, "registered Login performer id");
 
         var @event = new KEvent();
-        @event.SetData(performer.PerformerId, ReadOnlySpan<long>.Empty, 301);
-        Check(manager.QueueingTo(performer.PerformerId, @event), "queue Login server event");
+        @event.SetData(registered.PerformerId, ReadOnlySpan<long>.Empty, 301);
+        Check(manager.QueueingTo(registered.PerformerId, @event), "queue Login server event");
         await manager.TickAsync();
         Check(received == 1, "registered Login server event processed");
 
         Check(manager.RegisterRole(ServerRole.Login, static (_, _) => ValueTask.CompletedTask) is null, "duplicate Login role rejected");
-        Check(manager.Remove(performer.PerformerId), "remove registered Login performer");
-        Check(manager.Get(performer.PerformerId) is null, "removed Login performer unavailable");
+        Check(manager.Remove(registered.PerformerId), "remove registered Login performer");
+        Check(manager.Get(registered.PerformerId) is null, "removed Login performer unavailable");
     }
 
     private static void Check(bool condition, string name)
