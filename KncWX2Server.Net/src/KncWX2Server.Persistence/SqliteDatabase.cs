@@ -1,5 +1,4 @@
 using Microsoft.Data.Sqlite;
-using System.Data.Common;
 using SQLitePCL;
 
 namespace KncWX2Server.Persistence;
@@ -87,7 +86,8 @@ public sealed class SqliteDatabase(string databasePath) : IAsyncDisposable
             using var reader = new StreamReader(stream);
             var sql = await reader.ReadToEndAsync(cancellationToken);
 
-            await using DbTransaction transaction = await connection.BeginTransactionAsync(cancellationToken);
+            await using SqliteTransaction transaction = (SqliteTransaction)
+                await connection.BeginTransactionAsync(cancellationToken);
             await using var migration = connection.CreateCommand();
             migration.Transaction = transaction;
             migration.CommandText = sql;
