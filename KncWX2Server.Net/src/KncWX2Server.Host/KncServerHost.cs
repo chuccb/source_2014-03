@@ -11,9 +11,11 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
     private readonly ConcurrentDictionary<long, Task> _sessions = new();
     private readonly ConcurrentDictionary<long, ServerActor> _sessionActors = new();
     private readonly ServerActorManager _actors = new();
+    private readonly ServerPerformerManager _performers = new();
     private long _nextSessionId;
 
     public int ActorCount => _actors.Count;
+    public int ServerPerformerCount => _performers.Count;
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
@@ -23,7 +25,7 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
         listener.Start(options.Backlog);
 
         using var tickCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var tickTask = RunActorTicksAsync(tickCancellation.Token);
+        var tickTask = RunTicksAsync(tickCancellation.Token);
 
         Console.WriteLine($"[{options.Role}] listening on {options.BindAddress}:{options.Port}");
         Console.WriteLine($"SQLite: {database.DatabasePath}; workers={options.WorkerCount}; packet-auth-limit={options.PacketAuthFailLimit}; sequence-check={options.CheckSequenceNumbers}; no-delay={options.NoDelay}");
@@ -93,11 +95,16 @@ public sealed class KncServerHost(ServerOptions options, SqliteDatabase database
         return ValueTask.CompletedTask;
     }
 
-    private async Task RunActorTicksAsync(CancellationToken cancellationToken)
+    private async Task RunTicksAsync(CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(1));
         while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+        {
+            // Native KSimLayer::Tick(): KActorManager first, then KBaseServer::Tick().
+            // KBaseServer::Tick() begins with KPerformer::Tick().
             await _actors.TickAsync().ConfigureAwait(false);
+            await _performers.TickAsync().ConfigureAwait(false);
+        }
     }
 
     private async Task RunSessionAsync(long sessionId, KncServerSession session, ServerActor actor)
