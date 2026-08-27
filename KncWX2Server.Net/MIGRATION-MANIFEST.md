@@ -1,6 +1,6 @@
 # KncWX2Server migration manifest
 
-Updated: 2026-08-27
+Updated: 2026-08-28
 
 ## Scope
 
@@ -12,6 +12,7 @@ This stage covers the shared serializer/security foundation, TCP transport/sessi
 - latest repository-targeted .NET 11 (`net11.0`)
 - NativeAOT for executable projects
 - `.slnx` solution format
+- SQLite 3.53-compatible persistence design
 
 The repository is configured for preview C#, `net11.0`, AOT compatibility, server GC and Tiered PGO, with NativeAOT enabled for executable projects.
 
@@ -35,7 +36,8 @@ ServerActorManager
         ├─ UID lookup
         ├─ deferred delete/add
         ├─ pooled tick snapshot
-        └─ source-proven native UpdateUID semantics
+        ├─ source-proven native UpdateUID semantics
+        └─ GetFirstActorKey() → minimum registered UID
         ↓
 ServerEventRouter
         ├─ local user actor routing
@@ -55,7 +57,7 @@ Persistence / external services
 
 ## Actor/event source cross-check
 
-Verified native declarations and implementations include `Performer`, `Actor`, `ActorManager`, `SimLayer`, FSM support, `Event`, `KncUidType`, `KncSend`, `ActorFactory`, `ServerPacket`, `ClientPacket`, and `GSGameDBThread2nd` source.
+Verified native declarations and implementations include `Performer`, `Actor`, `ActorManager`, `SimLayer`, FSM support, `Event`, `KncUidType`, `KncSend`, `ActorFactory`, `ServerPacket`, `ClientPacket`, `BaseServer`, and Login server/user source.
 
 Important native semantics preserved:
 
@@ -64,12 +66,13 @@ Important native semantics preserved:
 - `m_vecAct` is insertion-ordered; `m_mapUID` is the lookup index.
 - native temporary UID is a random 40-bit pure UID with bit 62 set for the default/non-extended profile.
 - native `KActorManager::UpdateUID(newUid, actor)` removes the actor's old UID mapping, mutates the actor UID, then attempts insertion of the new mapping; insertion failure is returned without rolling back the mutation.
+- native `KActorManager::GetFirstActorKey()` returns `m_mapUID.begin()->first`, or `0` when the map is empty. This means the returned key is the minimum registered UID, not the first actor in insertion order.
 
 ## Managed actor/routing implementation
 
 - `Common/ServerEventQueue.cs`: concurrent FIFO with queue-depth statistics.
 - `Common/ServerActor.cs`: explicit actor event queue and optional FSM state.
-- `Common/ServerActorManager.cs`: ordered active actor list + UID lookup, deferred add/delete, pooled tick snapshot, and source-proven `UpdateUid` mutation semantics.
+- `Common/ServerActorManager.cs`: ordered active actor list + UID lookup, deferred add/delete, pooled tick snapshot, source-proven `UpdateUid` mutation semantics, and native-equivalent `GetFirstActorKey()` minimum-UID lookup.
 - `Common/Routing/PerformerRouting.cs`: authoritative performer/server bitfield constants.
 - `Common/Routing/PerformerIds.cs`: authoritative combined performer IDs.
 - `Common/ServerPerformer.cs`: FIFO internal performer queue without socket ownership.
@@ -90,6 +93,14 @@ The managed implementation now preserves that observable failure behavior. A reg
 - existing target mapping remains authoritative.
 
 This is intentionally not "fixed" into cleaner semantics because compatibility with the native behavior is the migration source of truth.
+
+## First actor key correction
+
+Native `KActorManager::GetFirstActorKey()` returns the first key from `std::map<UidType, KActorPtr>`, which is the numerically smallest registered UID. It does not use `m_vecAct` insertion order.
+
+The managed `ServerActorManager` now exposes `GetFirstActorKey()` with the same empty-map result (`0`) and minimum-UID semantics. A regression compares it against the minimum of two actual registered temporary UIDs.
+
+Because the managed UID index remains a `Dictionary<long, ServerActor>` for O(1) normal lookup, the minimum-key operation scans the registered keys under the existing manager gate. This is a deliberate localized tradeoff: it preserves the native observable result without replacing the primary hot-path lookup structure with a tree solely for this infrequent operation.
 
 ## Login role dispatch audit
 
@@ -125,13 +136,16 @@ Existing regressions remain enabled for:
 - deferred insertion/deletion
 - temporary UID marker
 - actor snapshot semantics
+- native `UpdateUID` duplicate failure semantics
+- native `GetFirstActorKey` minimum-UID semantics
 - performer routing
 - Login typed-payload boundary
-- **native `UpdateUID` duplicate failure semantics**
 
 ## Build verification
 
 GitHub Actions is the authoritative CI environment for this repository. Local `.NET` SDK execution is unavailable in the current container, so no local NativeAOT success is claimed.
+
+The last known successful workflow for the migration branch was run at commit `0f730979285206be6c2af4a46e78aa4dab60f299`; subsequent changes still require CI validation.
 
 ## Status
 
@@ -142,14 +156,15 @@ GitHub Actions is the authoritative CI environment for this repository. Local `.
 - Verified local performer routing subset: completed
 - Performer routing source-of-truth cleanup: completed
 - Actor `UpdateUID` native behavior correction: completed
+- Actor `GetFirstActorKey` native behavior correction: ported
 - Login dispatch boundary: ported-partial
 - Login role-specific opcode handlers: blocked
 
 ## Known partial / blocked areas
 
 - Native proxy/remote forwarding is not yet implemented because `KProxyManager` / cross-server transport ownership has not been converted.
-- `PC_CHARACTER` / room routing still requires their native manager contracts.
-- `PC_SERVER` local base-server routing still requires the managed equivalent of native `KBaseServer` performer registration.
+- `PC_CHARACTER` / room routing still requires the native manager contracts.
+- `PC_SERVER` local BaseServer routing still requires the managed equivalent of native `KBaseServer` performer registration.
 - Login concrete opcode dispatch is blocked until typed event-payload contracts exist.
 - `KEvent::SetData<T>` generic payload serialization remains blocked until its strongly typed payload contract is established from real callers.
 - Native conditional build-profile selection is still not bound to an effective managed runtime profile.
