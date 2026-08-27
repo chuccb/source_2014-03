@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 
 namespace KncWX2Server.Core.Common;
 
-/// <summary>Deferred actor registry matching native KActorManager tick ordering and actor insertion order.</summary>
+/// <summary>Deferred actor registry matching native KActorManager ordering and lifecycle.</summary>
 public sealed class ServerActorManager
 {
     private readonly object _gate = new();
@@ -59,12 +59,11 @@ public sealed class ServerActorManager
     {
         ArgumentNullException.ThrowIfNull(@event);
 
-        ServerActor[] actors;
         lock (_gate)
-            actors = [.. _actors];
-
-        foreach (var actor in actors)
-            actor.QueueingEvent(@event.Clone());
+        {
+            foreach (var actor in _actors)
+                actor.QueueingEvent(@event.Clone());
+        }
     }
 
     public async ValueTask TickAsync()
@@ -73,7 +72,7 @@ public sealed class ServerActorManager
         lock (_gate)
             actors = [.. _actors];
 
-        // Native KActorManager::Tick() processes the current actor vector first.
+        // Native KActorManager::Tick(): process the existing actor vector first.
         foreach (var actor in actors)
             await actor.TickAsync().ConfigureAwait(false);
 
