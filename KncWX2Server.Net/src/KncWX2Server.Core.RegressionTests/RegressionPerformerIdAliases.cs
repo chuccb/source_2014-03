@@ -1,7 +1,5 @@
 using KncWX2Server.Core.Common.Routing;
 
-global using PerformerIds = RegressionPerformerIdAliases;
-
 internal static class RegressionPerformerIdAliases
 {
     public const uint PiGsServer = (uint)PerformerId.GsServer;
