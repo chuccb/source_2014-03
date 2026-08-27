@@ -42,30 +42,40 @@ ServerActor
              │
              ▼
 ServerActorManager
-  ├─ active UID -> actor registry
+  ├─ ordered active actor list
+  ├─ UID lookup dictionary
   ├─ deferred add
   ├─ deferred delete
-  ├─ UID migration
   └─ Tick order: actors -> delete -> add
              │
-             ▼
-Role-specific event dispatch
-  ├─ Login
-  ├─ Center
-  ├─ Channel
-  └─ Game
+             ├───────────────┐
+             ▼               ▼
+       ServerEventRouter   Role-specific dispatch
+             │               ├─ Login
+             │               ├─ Center
+             │               ├─ Channel
+             │               └─ Game
              │
-             └─ service managers / persistence
+             ├─ local PC_USER → actor manager
+             ├─ local DB/Log performers → internal performer manager
+             ├─ lower-server traced route → local actor when present
+             └─ remote/proxy-required route → explicit blocked result
+                     │
+                     ▼
+              service managers / persistence
 ```
 
-## This stage: actor/event ownership
+## This stage: local performer routing
 
-Native `KPerformer` owns the event FIFO and consumes it from `Tick()`. Native `KActor` derives from `KSession` and adds a multi-thread-safe FSM surface; `KActorManager::Tick()` first ticks every currently registered actor, then applies deferred deletions, then deferred additions. The managed implementation preserves those observable ordering and lifetime boundaries while keeping socket ownership in `KncServerSession` rather than reproducing the old inheritance tree.
+Native `KncSend.cpp` first compares destination/current server class and then routes same-level events by performer class. Local users are found through `KActorManager`; DB/log performer classes are sent to `KDBLayer`; missing local user targets may be forwarded through `KProxyManager` when a trace exists; lower-level routing returns to the last sender UID; higher-level routing uses the proxy path.
+
+The managed stage introduces an explicit routing contract without pretending that the not-yet-converted proxy, room, base-server or DB-layer implementations already exist.
 
 ## Evidence checked
 
 ### Declaration / implementation
 
+- `KncWX2Server/Common/KncSend.h/.cpp`
 - `KncWX2Server/Common/Performer.h/.cpp`
 - `KncWX2Server/Common/Actor.h/.cpp`
 - `KncWX2Server/Common/ActorManager.h/.cpp`
@@ -77,68 +87,78 @@ Native `KPerformer` owns the event FIFO and consumes it from `Tick()`. Native `K
 - `KncWX2Server/Common/NetLayer.h/.cpp`
 - `KncWX2Server/Common/Socket/Session.h/.cpp`
 - `KncWX2Server/Common/KncUidType.h/.cpp`
+- `KncWX2Server/Common/ActorFactory.h`
+- `KncWX2Server/GameServer/GSGameDBThread2nd.h/.cpp`
+- `KncWX2Server/Common/ServerPacket.h`
+- `KncWX2Server/Common/ClientPacket.h`
 
-### Caller / callee chain
+### Routing chain
 
 ```text
-KncServerSession authenticated packet
-  -> KEvent decode
-  -> actor.QueueingEvent
-  -> ServerActorManager.TickAsync
-       -> actor.TickAsync
-            -> ProcessEvent delegate
-       -> deferred delete
-       -> deferred add / temporary UID
+Native KncSend
+  -> compare server classes
+  -> same-level performer switch
+       -> PC_USER -> KActorManager
+       -> DB/log classes -> KDBLayer
+       -> PC_SERVER -> BaseServer/proxy
+       -> PC_CHARACTER -> actor CID route
+       -> PC_ROOM -> RoomManager
+       -> default -> error
+  -> lower server -> trace UID -> local actor / broadcast
+  -> higher server -> proxy
 ```
 
-Native equivalent:
+Managed equivalent currently implemented for the provable local subset:
 
 ```text
-KSkSession::OnRecvCompleted
-  -> KSession::OnRecvCompleted
-  -> QueueingEvent
-  -> KSimLayer::Tick
-  -> KActorManager::Tick
-       -> KActor::Tick / KPerformer::Tick
-       -> Delete reserved actors
-       -> Add reserved actors
+ServerEventRouter
+  -> PC_USER -> ServerActorManager
+  -> PC_ACCOUNT_DB / PC_GAME_DB / PC_GAME_DB_2ND / PC_LOG_DB / PC_LOG_DB_2ND
+       -> ServerPerformerManager
+  -> lower server + trace -> local actor
+  -> remote path -> RemoteRouteRequired
 ```
 
 ## Ownership / lifetime / threading
 
-- `KncServerSession` remains the sole owner of the accepted TCP stream and security state.
-- `ServerActor` owns only actor/event-processing state; this avoids inventing a second socket owner.
-- `ServerActorManager.Create()` deliberately defers registry insertion, matching `KActorManager::ReserveAdd()`.
-- `ReserveDelete(ServerActor)` uses actor identity so a session that dies before its deferred-add tick cannot leave a ghost actor. This is an explicit safety hardening of the same two-stage lifecycle.
-- Actor event processing occurs on one manager tick loop, preventing concurrent `TickAsync()` execution for the same manager.
-- `ConcurrentQueue` / `ConcurrentDictionary` replace the old `CRITICAL_SECTION` + STL containers at the implementation level while preserving FIFO and registry semantics.
-- Temporary actor UIDs retain the native temporary-ID bit (`bit 62`) and 40-bit pure UID region. Exact random algorithm is intentionally not reproduced; the protocol-visible UID layout is retained.
+- `ServerActorManager` owns active actor identity and ordering; its list is the managed equivalent of native `m_vecAct`, while the dictionary supplies UID lookup equivalent to `m_mapUID`.
+- `ServerPerformer` owns only internal event processing state and never owns a socket.
+- `ServerPerformerManager` keeps explicit registration order for deterministic ticks.
+- `ServerEventRouter` only enqueues; actual event processing stays on the corresponding actor/internal-performer tick loop.
+- No reflection, dynamic dispatch, generated runtime code or unsafe memory is required for this routing layer.
 
-## FSM evidence
+## Performer ID / ABI
 
-Native `FSMclass` stores `int -> FSMstate*`, uses state ID `0` as an invalid/problem state, and returns the current state when an input has no matching transition. `FSMstate` stores unsorted fixed-capacity input/output arrays and shifts entries after deletion. The existing managed `Fsm` / `FsmState` conversion follows those semantics. Role-specific FSM definitions have not been invented because no service-specific state table was established in this stage.
+Native performer IDs use a `DWORD` bitfield. The managed representation is `uint` and preserves:
 
-## Managed files added/changed this stage
+- performer mask `0x000000FF`
+- server class mask `0x00000F00`
+- send type mask `0x0000F000`
+- server classes `SC_CLIENT` through `SC_GLOBAL`
+- core performer classes used by `KncSend`
+- `PC_GAME_DB_2ND` / `PC_LOG_DB_2ND` values introduced by the 2013 entry-point refactor
 
-- `Common/ServerEventQueue.cs`
-- `Common/ServerActor.cs`
-- `Common/ServerActorManager.cs`
-- `Host/KncServerHost.cs`
-- `Core.RegressionTests/Program.cs`
+No packet binary layout, endian rule, encryption or serializer field order changed in this stage.
 
-## Regression coverage added
+## Regression coverage
 
-- FIFO actor event consumption
-- new actors are not processed in the same tick in which they are deferred-added
-- native-style temporary UID marker
-- deferred actor deletion
-- actor deletion before deferred-add leaves no ghost actor
-- existing serializer, KEvent, framing, security and replay regressions remain covered
+`KncWX2Server.Core.RegressionTests` now verifies:
 
-## Known verification limitation
+- deterministic actor insertion-order processing
+- deferred actor lifecycle
+- local `PC_USER` routing
+- mixed local/missing user targets return `RemoteRouteRequired` while preserving local delivery
+- internal `PC_GAME_DB_2ND` routing into an internal performer FIFO
+- existing serializer, UTF-16LE, compression, KEvent, frame, security and replay regressions
 
-The execution environment still has no installed .NET SDK, so `dotnet build`, runtime tests and NativeAOT publish cannot truthfully be reported as executed. Source-level consistency and native cross-checking were performed instead.
+## Known partial / blocked areas
+
+- Native `KProxyManager` / cross-server forwarding remains blocked until its socket/session ownership is converted.
+- `PC_CHARACTER` and `PC_ROOM` routing need their native manager contracts.
+- `PC_SERVER` local routing needs `KBaseServer` performer registration.
+- Full role-specific opcode dispatch is not yet implemented.
+- `KEvent::SetData<T>` remains blocked until its strongly typed payload contract is established from real callers.
 
 ## Next unlock
 
-The next subsystem should be **role-specific actor/event dispatch tables**, starting with the smallest shared/common event routing surface and then Login/Center/Channel/Game-specific `ProcessEvent` implementations. Before converting a handler, its event ID declaration, packet struct, sender/caller, receiver, FSM state guards, response packet and persistence side effects must all be mapped from the native source.
+The highest-leverage next stage is **role-specific event dispatch**, starting with a handler whose packet declaration, serializer, caller, response, FSM constraints, and persistence/external-service effects can all be proven from source. Do not infer a handler from the event ID alone.
