@@ -20,6 +20,7 @@ static class Program
         ReplayWindowMatchesLegacySemantics();
         await ActorQueueAndDeferredManagerLifecycle();
         await ActorManagerRegression.PreservesNativeInsertionOrder();
+        await PerformerRoutingPreservesLegacyDispatchSemantics();
         Console.WriteLine("All KncWX2Server core regression checks passed.");
         return 0;
     }
@@ -243,6 +244,43 @@ static class Program
         manager.ReserveDelete(disconnectedBeforeAdd);
         await manager.TickAsync();
         Check(manager.Count == 0, "pre-add actor cancellation leaves no ghost actor");
+    }
+
+    private static async Task PerformerRoutingPreservesLegacyDispatchSemantics()
+    {
+        var actors = new ServerActorManager();
+        var performers = new ServerPerformerManager();
+        var router = new ServerEventRouter(PerformerIds.PiGsServer, actors, performers);
+
+        var actor = actors.Create(1, static (_, _) => ValueTask.CompletedTask);
+        await actors.TickAsync();
+
+        var local = new KEvent();
+        local.SetData(PerformerIds.PiGsUser, ReadOnlySpan<long>.Empty, 100);
+        Check(local.Destination.AddUid(actor.Uid), "local route destination");
+        Check(router.Route(local) == ServerEventRouteResult.Routed, "local user route");
+        Check(actor.QueueSize == 1, "local user queueing");
+
+        var remoteCandidate = new KEvent();
+        remoteCandidate.SetData(PerformerIds.PiGsUser, [actor.Uid], 101);
+        Check(remoteCandidate.Destination.AddUid(9_999_999), "remote route destination");
+        Check(router.Route(remoteCandidate) == ServerEventRouteResult.RemoteRouteRequired, "mixed local/remote route");
+        Check(actor.QueueSize == 2, "mixed route still queues local target");
+
+        var internalEvents = new List<ushort>();
+        Check(performers.Register(new ServerPerformer(
+            PerformerIds.PiGsGameDb2,
+            (_, @event) =>
+            {
+                internalEvents.Add(@event.EventId);
+                return ValueTask.CompletedTask;
+            })), "register internal performer");
+
+        var internalEvent = new KEvent();
+        internalEvent.SetData(PerformerIds.PiGsGameDb2, ReadOnlySpan<long>.Empty, 200);
+        Check(router.Route(internalEvent) == ServerEventRouteResult.Routed, "internal performer route");
+        await performers.TickAsync();
+        Check(internalEvents.Count == 1 && internalEvents[0] == 200, "internal performer FIFO dispatch");
     }
 
     private static void AssertSequence(ReadOnlySpan<byte> expected, ReadOnlySpan<byte> actual, string name)
