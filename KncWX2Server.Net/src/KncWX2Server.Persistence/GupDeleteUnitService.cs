@@ -30,8 +30,8 @@ public sealed class GupDeleteUnitService
         var nowText = FormatDate(now);
         var itemCount = await CountActiveItemsAsync(connection, unitUid, cancellationToken).ConfigureAwait(false);
 
-        await using DbTransaction transaction = await connection.BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
+        await using SqliteTransaction transaction = (SqliteTransaction)
+            await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         if (!await ExecuteExpectedAsync(
                 connection,
@@ -125,7 +125,7 @@ public sealed class GupDeleteUnitService
 
     private static async ValueTask<bool> ExecuteExpectedAsync(
         SqliteConnection connection,
-        DbTransaction transaction,
+        SqliteTransaction transaction,
         string sql,
         int expected,
         CancellationToken cancellationToken,
@@ -148,7 +148,7 @@ public sealed class GupDeleteUnitService
 
     private static async ValueTask<int> ExecuteNonQueryAsync(
         SqliteConnection connection,
-        DbTransaction transaction,
+        SqliteTransaction transaction,
         string sql,
         CancellationToken cancellationToken,
         params (string Name, object Value)[] parameters)
@@ -163,7 +163,7 @@ public sealed class GupDeleteUnitService
     }
 
     private static async ValueTask<int> RollbackAsync(
-        DbTransaction transaction,
+        SqliteTransaction transaction,
         int status,
         CancellationToken cancellationToken)
     {
