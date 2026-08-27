@@ -69,7 +69,7 @@ public sealed class GupCreateUnitService
             return new(-222, 0, deletedNicknameDate.AddDays(14));
         }
 
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken)
+        await using DbTransaction transaction = await connection.BeginTransactionAsync(cancellationToken)
             .ConfigureAwait(false);
 
         try
@@ -348,7 +348,7 @@ public sealed class GupCreateUnitService
             return (false, null);
 
         var deleted = reader.GetInt64(0) != 0;
-        var slotSize = reader.IsDBNull(1) ? null : checked((byte)reader.GetInt64(1));
+        byte? slotSize = reader.IsDBNull(1) ? null : checked((byte)reader.GetInt64(1));
         return (deleted, slotSize);
     }
 
