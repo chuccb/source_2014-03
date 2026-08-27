@@ -1,3 +1,5 @@
+using KncWX2Server.Core.Common.Routing;
+
 namespace KncWX2Server.Core.Common;
 
 public enum ServerEventRouteResult : byte
@@ -29,9 +31,9 @@ public sealed class ServerEventRouter
         ArgumentNullException.ThrowIfNull(@event);
 
         var destination = @event.Destination.PerformerId;
-        var comparison = PerformerIds.CompareServerLevel(destination, _currentPerformerId);
+        var comparison = PerformerRouting.CompareServerLevel(destination, _currentPerformerId);
 
-        if (comparison == 0 || PerformerIds.GetServerClass(destination) == 0)
+        if (comparison == 0 || PerformerRouting.GetServerClass(destination) == 0)
             return RouteSameLevel(destination, @event);
 
         return comparison < 0
@@ -39,19 +41,17 @@ public sealed class ServerEventRouter
             : ServerEventRouteResult.RemoteRouteRequired;
     }
 
-    private ServerEventRouteResult RouteSameLevel(uint destination, KEvent @event)
-    {
-        return PerformerIds.GetPerformerClass(destination) switch
+    private ServerEventRouteResult RouteSameLevel(uint destination, KEvent @event) =>
+        PerformerRouting.GetPerformerClass(destination) switch
         {
-            PerformerIds.PcUser => RouteToUsers(@event),
-            PerformerIds.PcAccountDb or
-            PerformerIds.PcGameDb or
-            PerformerIds.PcGameDb2 or
-            PerformerIds.PcLogDb or
-            PerformerIds.PcLogDb2 => RouteToInternalPerformer(destination, @event),
+            PerformerRouting.PerformerUser => RouteToUsers(@event),
+            PerformerRouting.PerformerAccountDb or
+            PerformerRouting.PerformerGameDb or
+            PerformerRouting.PerformerGameDb2nd or
+            PerformerRouting.PerformerLogDb or
+            PerformerRouting.PerformerLogDb2nd => RouteToInternalPerformer(destination, @event),
             _ => ServerEventRouteResult.UnsupportedPerformer,
         };
-    }
 
     private ServerEventRouteResult RouteToUsers(KEvent @event)
     {
@@ -89,7 +89,14 @@ public sealed class ServerEventRouter
         if (@event.IsEmptyTrace)
             return ServerEventRouteResult.LocalTargetMissing;
 
-        return _actors.QueueingTo(@event.LastSenderUid, @event)
+        var senderUid = @event.LastSenderUid;
+        if (senderUid == 0)
+        {
+            _actors.QueueingToAll(@event);
+            return ServerEventRouteResult.Routed;
+        }
+
+        return _actors.QueueingTo(senderUid, @event)
             ? ServerEventRouteResult.Routed
             : ServerEventRouteResult.LocalTargetMissing;
     }
