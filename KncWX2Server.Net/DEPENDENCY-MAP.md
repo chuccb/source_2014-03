@@ -1,6 +1,6 @@
 # KncWX2Server migration dependency map
 
-Updated: 2026-08-27
+Updated: 2026-08-28
 Scope: `KncWX2Server` + its actual SDK/source dependencies. `CA.exe.c` is explicitly out of scope for this migration.
 
 ## Current dependency graph
@@ -47,7 +47,13 @@ ServerActorManager
   ├─ deferred add
   ├─ deferred delete
   ├─ pooled tick snapshot (ArrayPool<ServerActor>)
-  └─ Tick order: actors -> delete -> add
+  ├─ source-proven native UpdateUID semantics
+  └─ GetFirstActorKey() → minimum registered UID
+             │
+             ├─ server identity boundary
+             │    ├─ ServerInfo
+             │    └─ ServerIdentity
+             │         └─ KBaseServer::SetServerInfo field application
              │
              ├───────────────┐
              ▼               ▼
@@ -67,11 +73,64 @@ ServerActorManager
               service managers / persistence
 ```
 
-## Current implementation correction: actor tick snapshot
+## Server identity source chain audited
 
-`ServerActorManager.TickAsync()` preserves the native ordering semantics while avoiding a managed array allocation on every tick. The prior collection-expression snapshot created a fresh `ServerActor[]` for every 1 ms tick. The implementation now rents the snapshot from `ArrayPool<ServerActor>.Shared`, copies the current actor vector under `_gate`, processes exactly that snapshot, then returns the array in `finally` with reference clearing.
+Native sources re-checked for the current identity boundary:
 
-The snapshot boundary is intentional: actors added during a tick are not processed until the next tick, and actors deferred for deletion remain part of the current tick snapshot, matching the existing vector-first/deferred-lifecycle model.
+- `KncWX2Server/Common/ServerPacket.h`
+- `KncWX2Server/Common/CommonPacket.h`
+- `KncWX2Server/Common/BaseServer.h`
+- `KncWX2Server/Common/BaseServer.cpp`
+- `KncWX2Server/LoginServer/LoginServer.h`
+- `KncWX2Server/LoginServer/LoginServer.cpp`
+
+`KServerInfo` is a packed data object. Its common fields are:
+
+- `int m_iUID`
+- `std::wstring m_wstrName`
+- `int m_iServerGroupID`
+- `int m_iServerClass`
+- `std::wstring m_wstrIP` in the non-private-network build
+- `u_short m_usMasterPort`
+- `u_short m_usNCUDPPort`
+- `int m_nMaxUser`
+- `int m_nCurrentUser`
+- `bool m_bOn`
+
+Private-IP and server-role fields are feature-gated in the native declaration and are not claimed as active managed runtime fields until the effective build profile is bound.
+
+`KBaseServer::SetServerInfo()` applies the identity fields to the local server, and additionally configures the native `KNetLayer` master/UDP ports. The managed stage intentionally separates the pure identity state from those still-unconverted network-layer side effects.
+
+## Managed server identity implementation
+
+- `Common/ServerInfo.cs`: source-proven managed representation of the common `KServerInfo` fields; native `int` fields remain `int`, native `u_short` fields remain `ushort`, and server class is a strongly typed `int`-backed enum.
+- `Common/ServerIdentity.cs`: mutable local identity state corresponding to the field-application portion of `KBaseServer::SetServerInfo()`; it deliberately has no socket/UDP ownership.
+
+This is a domain/state boundary, not a packet serializer. No wire-format claim is made for `ServerInfo` until its concrete packet serializer path is migrated.
+
+## Actor/event source cross-check
+
+Verified native declarations and implementations include `Performer`, `Actor`, `ActorManager`, `SimLayer`, FSM support, `Event`, `KncUidType`, `KncSend`, `ActorFactory`, `ServerPacket`, `ClientPacket`, `BaseServer`, and Login server/user source.
+
+Important native semantics preserved:
+
+- `KActor::Tick()` consumes queued events in FIFO order.
+- `KActorManager::Tick()` processes the existing actor vector, then deferred delete, then deferred add.
+- `m_vecAct` is insertion-ordered; `m_mapUID` is the lookup index.
+- native temporary UID is a random 40-bit pure UID with bit 62 set for the default/non-extended profile.
+- native `KActorManager::UpdateUID(newUid, actor)` removes the actor's old UID mapping, mutates the actor UID, then attempts insertion of the new mapping; insertion failure is returned without rolling back the mutation.
+- native `KActorManager::GetFirstActorKey()` returns `m_mapUID.begin()->first`, or `0` when the map is empty. This means the returned key is the minimum registered UID, not the first actor in insertion order.
+
+## Managed actor/routing implementation
+
+- `Common/ServerEventQueue.cs`: concurrent FIFO with queue-depth statistics.
+- `Common/ServerActor.cs`: explicit actor event queue and optional FSM state.
+- `Common/ServerActorManager.cs`: ordered active actor list + UID lookup, deferred add/delete, pooled tick snapshot, source-proven `UpdateUid` mutation semantics, and native-equivalent `GetFirstActorKey()` minimum-UID lookup.
+- `Common/Routing/PerformerRouting.cs`: authoritative performer/server bitfield constants.
+- `Common/Routing/PerformerIds.cs`: authoritative combined performer IDs.
+- `Common/ServerPerformer.cs`: FIFO internal performer queue without socket ownership.
+- `Common/ServerPerformerManager.cs`: ordered internal performer registry and tick processing.
+- `Common/ServerEventRouter.cs`: local routing with explicit remote/unsupported results.
 
 ## Login role dispatch audit
 
@@ -100,58 +159,7 @@ KLoginUser : KActor
 
 Native `_CASE` performs concrete payload deserialization with `KSerializer`, invokes `ON_<event>(trace, packet)`, then resets the event payload buffer. `KEvent::SetData<T>` uses the same typed serializer path. Therefore role dispatch cannot safely be reduced to an opcode callback table without the packet contract.
 
-The managed Login stage now has an explicit `LoginEventDispatcher` boundary. It classifies a Login-user destination as `TypedPayloadContractMissing` until a source-proven typed packet/serializer exists, and rejects non-Login destinations from the Login role boundary. It intentionally does not fabricate a concrete Login opcode handler.
-
-## Login source chain audited
-
-### Declaration / construction / lifecycle
-
-- `KncWX2Server/LoginServer/LoginServer.h`
-- `KncWX2Server/LoginServer/LoginServer.cpp`
-- `KncWX2Server/LoginServer/LoginNetLayer.h/.cpp`
-- `KncWX2Server/LoginServer/LoginUser.h/.cpp`
-- `KncWX2Server/LoginServer/LoginServer_2010.vcxproj`
-- `KncWX2Server/Common/Event.h`
-- `KncWX2Server/Common/KncSend.h`
-- `KncWX2Server/Common/KncUidType.h`
-- `KncWX2Server/Common/CommonPacket.h`
-- `KncWX2Server/Common/ServerPacket.h`
-- `KncWX2Server/Common/ClientPacket.h`
-- `KncWX2Server/Common/EventID_Server.h`
-
-### Native Login ownership / routing observations
-
-- `KLoginServer::Init()` installs the Login network layer and a `KActorFactory<KLoginUser, KDefaultFSM, ...>`.
-- `KLoginUser::ProcessEvent()` calls `RoutePacket()` before the role-local opcode switch.
-- `RoutePacket()` distinguishes lower-level forwarding, higher-level/proxy routing, and same-level performer classes; it queues to BaseServer/DB/room/auth managers rather than blindly writing to a socket.
-- `KLoginUser::OnDestroy()` unregisters users from `KLoginSimLayer` and performs additional profile-dependent cleanup.
-- `KLoginUser::ELG_USER_DISCONNECT_REQ` performs user unregister plus `DBE_UPDATE_IS_LOGIN_NOT`; ACK behavior depends on embedded event semantics and optional account-count data.
-- `DBE_VERIFY_SERVER_CONNECT_ACK` mutates actor identity/state, checks duplicate UID, transitions to authenticated state, and depends on BaseServer performer registration plus the concrete packet contract.
-
-### Managed chain audited
-
-```text
-KncServerHost
-  -> KncServerSession
-  -> QueueSessionEventAsync
-  -> ServerActor.QueueingEvent
-  -> ServerActor.TickAsync
-  -> ProcessActorEventAsync (currently shared placeholder)
-```
-
-`KncServerSession` authenticates/decrypts and deserializes `KEvent` before queueing. The Host layer still does not know how to provide a concrete Login typed packet handler; the new Login dispatcher boundary therefore stays explicit and partial rather than silently absorbing the event.
-
-## Performer source-of-truth correction
-
-The repository previously contained three managed performer-id definition files. The two obsolete duplicates were removed:
-
-- `src/KncWX2Server.Core/Common/PerformerIds.cs`
-- `src/KncWX2Server.Core/PerformerIds.cs`
-
-The authoritative definitions are:
-
-- `src/KncWX2Server.Core/Common/Routing/PerformerRouting.cs` — masks, server classes and performer-class constants.
-- `src/KncWX2Server.Core/Common/Routing/PerformerIds.cs` — exact combined `PerformerId` values.
+The managed Login stage has an explicit `LoginEventDispatcher` boundary. It classifies a Login-user destination as `TypedPayloadContractMissing` until a source-proven typed packet/serializer exists, and rejects non-Login destinations from the Login role boundary. It intentionally does not fabricate a concrete Login opcode handler.
 
 ## Ownership / lifetime / threading
 
@@ -161,7 +169,7 @@ The authoritative definitions are:
 - `ServerPerformerManager` preserves explicit registration order for deterministic ticks.
 - `ServerEventRouter` only routes/enqueues; processing remains on the corresponding actor/internal-performer loop.
 - `KncServerSession` owns one socket/security/lifetime domain; cancellation closes session resources.
-- The Login boundary itself is stateless and alloc-free for the classification path.
+- `ServerIdentity` owns only local server metadata and does not own `KnetLayer`/socket/UDP resources.
 
 ## Performer ID / ABI
 
@@ -173,7 +181,8 @@ Native performer IDs are `DWORD` bitfields; managed routing uses `uint`.
 - server classes `SC_CLIENT` through `SC_GLOBAL`
 - verified performer classes, including `PC_GAME_DB_2ND` / `PC_LOG_DB_2ND`
 
-Native `UidType` is `__int64`, represented by managed `long` in the current event/actor layer.
+Native actor `UidType` is `__int64`, represented by managed `long` in the actor/event layer.
+Native `KServerInfo::m_iUID` is a separate 32-bit `int` identity field and is therefore represented by managed `int` in `ServerInfo` / `ServerIdentity`.
 
 ## Protocol / serializer status
 
@@ -181,20 +190,35 @@ Native `UidType` is `__int64`, represented by managed `long` in the current even
 - Native KEvent field order remains destination performer info, trace[2], event id, then serialized payload buffer (plus feature-gated source metadata when active).
 - `KEvent::SetData<T>` / `_CASE` remain blocked from a concrete managed Login payload implementation until packet declaration and serializer evidence are complete.
 - `KSerializer` explicitly encodes numeric primitives in network byte order and Win32 `wchar_t` code units as 2-byte UTF-16LE on the target platform; WString has an existing regression.
+- `ServerInfo` is currently a domain model and is not yet claimed as a completed wire packet serializer.
 
 ## Regression coverage
 
-`KncWX2Server.Core.RegressionTests` now additionally verifies:
+`KncWX2Server.Core.RegressionTests` verifies:
 
-- Login-user destination enters the explicit `TypedPayloadContractMissing` boundary.
-- Non-Login destinations do not enter Login role dispatch.
-- Existing actor lifecycle/ordering, serializer, UTF-16LE, compression, KEvent, frame, security and replay regressions remain enabled.
+- serializer byte order
+- Win32 UTF-16LE strings
+- compression
+- `KPerformerInfo` UID limit
+- KEvent field order/round-trip
+- TCP framing
+- SecureBuffer authentication/tampering/replay
+- actor FIFO ordering
+- deferred insertion/deletion
+- temporary UID marker
+- actor snapshot semantics
+- native `UpdateUID` duplicate failure semantics
+- native `GetFirstActorKey` minimum-UID semantics
+- performer routing
+- Login typed-payload boundary
+- `KServerInfo` field application into managed server identity state
 
 ## Known partial / blocked areas
 
 - Native `KProxyManager` / cross-server forwarding remains blocked until socket/session ownership is converted.
-- `PC_CHARACTER` and `PC_ROOM` routing need their native manager contracts.
+- `PC_CHARACTER` and `PC_ROOM` routing need the native manager contracts.
 - `PC_SERVER` local routing needs the managed `KBaseServer` performer-registration equivalent.
+- `KBaseServer` network-layer side effects from `SetServerInfo()` (`SetPort`, `InitNCUDP`) remain blocked until the managed network layer owns those resources.
 - Concrete Login opcode dispatch is blocked until typed event-payload contracts exist.
 - `KEvent::SetData<T>` generic payload serialization remains blocked until a strongly typed payload contract is established from real callers.
 - Native conditional build-profile selection is not bound to an effective managed runtime profile.
@@ -202,4 +226,4 @@ Native `UidType` is `__int64`, represented by managed `long` in the current even
 
 ## Next unlock
 
-The next implementation target remains the first source-proven typed Login event contract, with `DBE_VERIFY_SERVER_CONNECT_ACK` currently the strongest candidate. Before writing its handler, fully trace its concrete packet declaration, serializer mapping, `KBaseServer` performer-registration/ownership, state transition, duplicate UID behavior, caller/callee chain, shutdown behavior, and effective build-profile branches.
+**Finish the source-proven `KBaseServer` registration boundary:** connect `ServerIdentity` to the managed server-level performer/host lifecycle without claiming the unconverted native network-layer side effects. Then resume `DBE_VERIFY_SERVER_CONNECT_ACK` by resolving its exact packet declaration + serializer mapping and authenticated-state transition.
