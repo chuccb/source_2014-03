@@ -83,16 +83,10 @@ static class Program
 
     private static void SecureBufferRoundTripsAndAuthenticates()
     {
-        var senderDatabase = new SecurityAssociationDatabase();
-        var senderAssociation = senderDatabase.CreateNew(out var spi);
-        var receiverDatabase = new SecurityAssociationDatabase();
-        var receiverAssociation = new SecurityAssociation();
-        receiverAssociation.Restore(senderAssociation.Snapshot());
-        receiverDatabase.Insert(out var receiverSpi, receiverAssociation);
-        Check(receiverSpi == spi, "share SPI");
-
+        var database = new SecurityAssociationDatabase();
+        var association = database.CreateNew(out var spi);
         var payloadBytes = Encoding.ASCII.GetBytes("legacy security payload");
-        var sender = new SecureBuffer(spi, senderDatabase);
+        var sender = new SecureBuffer(spi, database);
         Check(sender.Create(payloadBytes), "secure create");
         Check(sender.Size >= 2 + 4 + 8 + 8 + 10, "secure minimum size");
 
@@ -100,35 +94,31 @@ static class Program
         Check(BinaryPrimitives.ReadUInt16LittleEndian(packet) == spi, "wire SPI little endian");
         Check(BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(2)) == 1, "wire sequence little endian");
 
-        var receiver = new SecureBuffer(spi, packet, receiverDatabase);
+        var receiver = new SecureBuffer(spi, packet, database);
         Check(receiver.IsAuthentic(), "secure authentication");
         var output = new ByteStream();
         Check(receiver.GetPayload(output), "secure payload decode");
         AssertSequence(payloadBytes, output.ToArray(), "secure payload round trip");
         receiver.SetAccepted();
+
+        Check(association.SequenceNumber == 2, "sender sequence increment");
     }
 
     private static void SecureBufferRejectsTamperingAndDuplicates()
     {
-        var senderDatabase = new SecurityAssociationDatabase();
-        var senderAssociation = senderDatabase.CreateNew(out var spi);
-        var receiverDatabase = new SecurityAssociationDatabase();
-        var receiverAssociation = new SecurityAssociation();
-        receiverAssociation.Restore(senderAssociation.Snapshot());
-        receiverDatabase.Insert(out var receiverSpi, receiverAssociation);
-        Check(receiverSpi == spi, "share no-RWM SPI");
-
+        var database = new SecurityAssociationDatabase();
+        database.CreateNew(out var spi);
         var payload = Encoding.ASCII.GetBytes("authenticated");
-        var sender = new SecureBuffer(spi, senderDatabase);
+        var sender = new SecureBuffer(spi, database);
         Check(sender.CreateNoReplayWindow(payload), "create no-RWM");
         var packet = sender.Data.ToArray();
 
-        var receiver = new SecureBuffer(spi, packet, receiverDatabase);
+        var receiver = new SecureBuffer(spi, packet, database);
         Check(receiver.IsAuthenticNoReplayWindow(), "no-RWM authentication");
         Check(!receiver.IsAuthenticNoReplayWindow(), "duplicate no-RWM packet rejected");
 
         packet[^1] ^= 0x01;
-        var tampered = new SecureBuffer(spi, packet, receiverDatabase);
+        var tampered = new SecureBuffer(spi, packet, database);
         Check(!tampered.IsAuthenticNoReplayWindow(checkSequenceNumber: false), "tampered ICV rejected");
     }
 
