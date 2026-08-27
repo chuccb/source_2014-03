@@ -1,85 +1,188 @@
 # KncWX2Server migration dependency map
 
-Date: 2026-08-27
+Updated: 2026-08-27
 Scope: `KncWX2Server` + its actual SDK/source dependencies. `CA.exe.c` is explicitly out of scope for this migration.
 
-## Layer graph
+## Current dependency graph
 
 ```text
-Legacy serializer primitives
-  ├─ ByteOrder (network numeric = big-endian; wchar_t = Win32 UTF-16LE bytes)
-  ├─ SerBuffer (raw buffer + compression metadata)
+Legacy serializer / binary contracts
+  ├─ ByteOrder
+  │    ├─ serializer numeric values: network BIG-endian
+  │    └─ Win32 wchar_t bytes: UTF-16LE
+  ├─ SerBuffer
   └─ KSerializer
        │
-       ├─ SecurityAssociation serialization state
-       │
-       └─ application/user-class serialization
+       ├─ KPerformerInfo
+       ├─ KEvent
+       └─ SecurityAssociation serialization
 
 KncSecurity
   ├─ SecurityAssociation
-  │    ├─ 8-byte auth key
-  │    ├─ 8-byte DES key
-  │    ├─ 32-bit sequence number
-  │    └─ 32-bit replay-window state
+  │    ├─ AuthKey: 8 bytes
+  │    ├─ CryptoKey: 8 bytes (DES)
+  │    ├─ SequenceNumber: u32
+  │    └─ ReplayWindowMask: u32
   │
   ├─ SecurityAssociationDatabase
-  │    └─ SPI -> SecurityAssociation, with mandatory SPI 0 default SA
+  │    └─ SPI -> SA, with SPI 0 default SA
   │
   └─ SecureBuffer
-       ├─ [SPI:u16 LE]
-       ├─ [Sequence:u32 LE]
-       ├─ [IV:8]
-       ├─ [DES-CBC ciphertext]
-       └─ [ICV:HMAC-MD5 truncated to 10]
+       ├─ SPI: u16 LE
+       ├─ Sequence: u32 LE
+       ├─ IV: 8 bytes
+       ├─ DES-CBC ciphertext
+       └─ ICV: HMAC-MD5, first 10 bytes
              │
              ▼
-       socket/session packet framing
+Legacy TCP framing
+  ├─ [TotalLength:u16 LE]  // includes the 2-byte length field
+  └─ [SecureBuffer bytes]
              │
              ▼
-       Login / Center / Channel / Game services
-             │
-             └─ Persistence / shared state
+KncServerHost
+  ├─ TcpListener / BCL async socket implementation
+  │    └─ Windows uses the platform async socket machinery; no Win32 IOCP API is required in managed code
+  └─ session ownership
+       │
+       ▼
+KncServerSession
+  ├─ owns TcpClient + NetworkStream lifetime
+  ├─ owns per-session SecurityAssociationDatabase
+  ├─ serializes sends with one async gate
+  ├─ receive loop -> frame parser -> SecureBuffer authentication/decryption
+  ├─ KSerializer -> KEvent decode
+  ├─ 15 s heartbeat monitor / 60 s receive timeout
+  └─ packet-auth-failure counter / disconnect threshold
+       │
+       ▼
+Role-specific event dispatch
+  ├─ Login
+  ├─ Center
+  ├─ Channel
+  └─ Game
+       │
+       └─ actor/session managers -> service handlers -> Persistence
 ```
 
-## Why this subsystem is next
+## Transport evidence checked
 
-The security/serialization foundation is the highest-leverage dependency because it sits below packet framing, session state and every service endpoint. Any endian, tag, size, SPI, sequence, padding, ICV or DES-CBC mistake would contaminate every subsequent subsystem.
+### Declaration / implementation
 
-## Evidence-checked invariants
+- `KNetLayer` owns `KAccepter`, `KIocp`, UDP helpers and `IActorFactory`.
+- `KSession` owns `KSkSession`, proxy/unproxy state, SPI, sequence/auth counters and lifecycle.
+- `KSocketObject` owns the Windows socket, receive/send overlapped buffers and send queue.
+- `KIocp` maps completion keys to `KSocketObject` instances.
+- `KIOThread` drains completion packets and dispatches to socket objects.
+- `KSkSession` bridges socket completion to `KSession`.
+- Role NetLayer subclasses (`KLoginNetLayer`, `KChannelNetLayer`, `KGSNetLayer`, `KGlobalNetLayer`) do not override the core transport lifecycle; they only add Lua registration.
 
-- `SpiType` is `unsigned short` => exactly 2 bytes.
-- `SeqType` is `unsigned int` => exactly 4 bytes.
-- `SecurityAssociation`: auth key 8, crypto key 8, IV 8, ICV 10, DES block 8, max extra padding blocks 1.
-- Serializer host is little-endian; network integer representation is explicitly big-endian.
-- `KSecureBuffer` itself appends SPI and sequence as native Win32 integer bytes, therefore little-endian on the legacy platform.
-- Received wire SPI is parsed for validation, but the expected/session `_spi` remains authoritative; the old source intentionally does not replace it with the wire SPI.
-- SPI 0 default security association exists before any connection is accepted.
-- Normal replay-window sequence checking is distinct from the TCP no-replay-window path.
-- ICV authenticates every byte before the final 10-byte ICV.
-- DES-CBC input is already padded and must be a multiple of 8 bytes.
-- Legacy IV generation currently emits eight values in the range ASCII `A`..`h` (`65..104`), rather than using the commented secure RNG.
-- Current legacy padding uses no extra random blocks because the active source sets `nRand = 0`; the maximum-size helper still reserves one possible extra block.
+### Caller / callee chain
 
-## Current conversion status
+```text
+KNetLayer::Init
+  -> KAccepter::Init / Begin
+  -> KncSecurity::InitSecurity
+  -> KIocp::Init / BeginThread
 
-### Verified / present
+KAccepter::Loop
+  -> KNetLayer::OnAccept
+  -> KNetLayer::OnAccept_
+  -> IActorFactory::CreateActor
+  -> KSocketObject::SetSocketInfo
+  -> KIocp::AssociateSocket
+  -> KSocketObject::InitRecv
+  -> KSkSession::OnAcceptConnection
+  -> KSession::OnAcceptConnection
 
-- `KncWX2Server.slnx`
-- common C# project configuration targeting `net11.0` with preview language mode
-- `SecurityAssociation.cs`
-- `SecurityAssociationDatabase.cs`
-- `SecureBuffer.cs`
-- `ByteStream.cs`
-- `KSerializer.cs`
+IOCP thread
+  -> KIocp::OnIOCompleted
+  -> KSocketObject::OnRecvCompleted / OnSendCompleted
+  -> KSkSession::OnRecvCompleted
+  -> KSession::OnRecvCompleted
+  -> KSerializer::Get(KEvent)
+  -> QueueingEvent
+```
 
-### Requires correction / hardening in this stage
+The managed transport preserves the same observable sequence even though the implementation uses `TcpListener`/`NetworkStream` rather than manually exposing Windows IOCP objects.
 
-- remove dead double-randomization in `SecureBuffer.GenerateIv`
-- remove LINQ allocation from security-key generation
-- reduce avoidable cryptographic temporary allocations where this can be done without changing wire behavior
-- add regression coverage for serializer byte order, UTF-16LE wire bytes, security-buffer round trip, padding, ICV and sequence/replay semantics
-- document that the security-buffer wire header uses little-endian independently from the serializer's big-endian numeric format
+## Wire contracts verified
 
-## Next subsystem after this stage
+### Outer TCP frame
 
-After the foundation passes regression validation, the next highest-unlock subsystem is the **session/transport packet framing and dispatch layer**: callers/callees around socket receive/send, packet header handling, sequence/security integration, initialization and shutdown. This layer should be mapped before touching individual Login/Center/Channel/Game handlers.
+Original `KSession::SendPacket` serializes the complete `KEvent`, wraps it in `KSecureBuffer`, then prepends a `USHORT` containing the **total frame size including the two-byte length field**. The receive path reads that same `USHORT`, waits for the complete frame, and passes only `length - sizeof(USHORT)` bytes to `KSecureBuffer`. This is implemented by `KncProtocol`.
+
+### Security handshake
+
+`KSession::OnAcceptConnection` creates a fresh SA/SPI, serializes `SPI + SecurityAssociation` into an `E_ACCEPT_CONNECTION_NOT` event, sends that event while the session still uses SPI 0/default security, and only then changes the session SPI to the fresh value. `KncServerSession` preserves this order exactly.
+
+### Packet authentication
+
+TCP uses the legacy **no-replay-window** path (`Create_notRWM` / `IsAuthentic_notRWM`). A non-zero SPI advances sequence numbers after send. SPI 0 does not advance the sequence. Authentication failure increments a session counter; the legacy session disconnects once failures become greater than the configured limit. The managed session preserves the same `>` comparison.
+
+### Heartbeat
+
+Server-side (unproxy) sessions do not actively send heartbeat packets. They refresh their receive timestamp only after an authenticated packet has been decrypted and decoded as `KEvent`, then treat a gap greater than 60 seconds as a zombie and reserve destruction. The managed session uses a 15-second periodic check against the same 60-second threshold.
+
+### Nagle / socket behavior
+
+Legacy `KAccepter` has Nagle enabled by default and only sets `TCP_NODELAY` when explicitly disabled. Managed `TcpClient.NoDelay` therefore defaults to `false`; `--no-delay` opts into the legacy `TCP_NODELAY` branch.
+
+## Ownership / lifetime / concurrency decisions
+
+- One `KncServerSession` owns one accepted TCP connection and its security state.
+- Host tracks active session tasks in a `ConcurrentDictionary<long, Task>` and removes them when their run task completes.
+- A linked cancellation token owns session shutdown; when the receive task or heartbeat monitor finishes, the other is cancelled immediately.
+- Send operations are serialized by one `SemaphoreSlim`, preventing interleaving of complete legacy frames while allowing independent receive processing.
+- Managed code does not recreate the old custom overlapped buffer/circular send queue. `NetworkStream.WriteAsync` provides the actual socket write/backpressure primitive; no invented packet transformation is inserted between KEvent and the wire frame.
+- No `unsafe`, `dynamic`, reflection-based dispatch, or third-party networking library is required for this transport stage.
+
+## Source evidence checked this stage
+
+- `KncWX2Server/Common/NetLayer.h/.cpp`
+- `KncWX2Server/Common/ActorFactory.h`
+- `KncWX2Server/Common/ActorManager.h`
+- `KncWX2Server/Common/Socket/Session.h/.cpp`
+- `KncWX2Server/Common/Socket/SocketObject.h/.cpp`
+- `KncWX2Server/Common/Socket/IOCP.h/.cpp`
+- `KncWX2Server/Common/Socket/IOThread.h/.cpp`
+- `KncWX2Server/Common/Socket/Overlapped.h`
+- `KncWX2Server/Common/Socket/Accepter.h/.cpp`
+- `KncWX2Server/Common/Event.h/.cpp`
+- `KncWX2Server/Common/EventID_System.h`
+- `KncWX2Server/Common/KncUidType.h`
+- `KNCSDK/Include/KncSecurity/SecureBuffer.h/.cpp`
+- `KNCSDK/Include_2010/KncSecurity/ByteStream.h/.cpp`
+- `KNCSDK/Include_2010/KncSecurity/SecurityAssociation.h/.cpp`
+- `KNCSDK/Include/KncSecurity/KncSecurity.h`
+- `KNCSDK/Include/Serializer/Serializer.h`
+- active C# conversion files under `KncWX2Server.Net/src/KncWX2Server.Core*` and `KncWX2Server.Net/src/KncWX2Server.Host`
+
+## Current converted components
+
+- `KncProtocol` — exact legacy TCP frame length semantics
+- `KncServerSession` — accepted-session lifetime, handshake, auth/decrypt, event decode, heartbeat and send serialization
+- `KncServerHost` — listener/session ownership and orderly shutdown
+- `KPerformerInfo` — legacy 2000 UID limit
+- `EventIds` — verified system-event prefix
+- `SecurityAssociation` / `SecurityAssociationDatabase` / `SecureBuffer`
+- `KSerializer` / `SerBuffer` / `ByteStream` / `KEvent`
+
+## Regression coverage
+
+`KncWX2Server.Core.RegressionTests` now also verifies:
+
+- `KPerformerInfo` 2000-element limit
+- exact KEvent serialization field order
+- two-byte little-endian total-frame length
+- secure frame payload placement
+- intentionally short complete frames remaining eligible for security-layer validation
+- previous serializer, compression, security, ICV and replay-window checks
+
+## Known verification limitation
+
+The execution environment currently has no installed .NET SDK (`dotnet --info` previously returned `command not found`). Therefore source-level and cross-source verification is complete, but this stage has not been truthfully reported as successfully built, executed, or NativeAOT-published.
+
+## Next unlock
+
+The next highest-leverage subsystem is **server-side event dispatch + actor/session manager ownership**. The transport contract is now stable enough to map `QueueingEvent`, `KPerformer`, `KActor`, `KActorManager`, FSM/event processing, deferred add/delete, and each role's event dispatch tables before converting Login/Center/Channel/Game handlers.
