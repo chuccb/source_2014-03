@@ -30,6 +30,12 @@ static class Program
         LoginDispatchRegression.RejectsUnprovenLoginPayloads();
         ServerIdentityRegression.AppliesNativeKServerInfoFields();
         ServerListRegression.ReplacesAndSnapshotsServerGroups();
+        ServerConnectRequestRegression.SerializerUsesExactNativeFieldOrderAndWidths();
+        ServerConnectRequestRegression.RejectsMismatchedPeerIpWithNativeErrorCode();
+        ServerConnectRequestRegression.ForwardsExactRequestAfterPeerIpValidation();
+        ServerConnectAckRegression.SerializerRoundTripsEffectiveIntegrationLayout();
+        await ServerConnectAckRegression.AuthenticatesAndUpdatesActorUid();
+        await ServerConnectAckRegression.RejectsDuplicateUidAfterSendingSuccessResponse();
         Console.WriteLine("All KncWX2Server core regression checks passed.");
         return 0;
     }
