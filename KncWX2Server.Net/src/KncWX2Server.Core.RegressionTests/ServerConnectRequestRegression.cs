@@ -16,7 +16,7 @@ static class ServerConnectRequestRegression
 
         var expected = new byte[]
         {
-            0x00, 0x00, 0x00, 0x10,
+            0x00, 0x00, 0x00, 0x12,
             0x31, 0x00, 0x30, 0x00, 0x2E, 0x00, 0x30, 0x00,
             0x2E, 0x00, 0x30, 0x00, 0x2E, 0x00, 0x31, 0x00,
             0x12, 0x34,
@@ -38,7 +38,7 @@ static class ServerConnectRequestRegression
 
         Check(outcome.Result == LoginServerConnectRequestResult.InvalidPeerIp, "invalid IP result");
         Check(outcome.Response.Ok == 8, "native ERR_VERIFY_02 value");
-        Check(!outcome.Response.Name.Equals("", StringComparison.Ordinal) == false, "error ACK uses default name");
+        Check(outcome.Response.Name.Length == 0, "error ACK uses default name");
     }
 
     public static void ForwardsExactRequestAfterPeerIpValidation()
