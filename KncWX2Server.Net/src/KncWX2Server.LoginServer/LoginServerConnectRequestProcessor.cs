@@ -24,11 +24,12 @@ public static class LoginServerConnectRequestProcessor
 
         if (!string.Equals(request.IpAddress, peerIp, StringComparison.Ordinal))
         {
+            // Native NetError_def.h sequence: NET_OK=0 through ERR_VERIFY_02=8.
             return new(
                 LoginServerConnectRequestResult.InvalidPeerIp,
                 request,
                 new ServerConnectAck(
-                    Ok: 2,
+                    Ok: 8,
                     Uid: 0,
                     DbRegisteredServerGroupId: 0,
                     LocalServerGroupId: 0,
